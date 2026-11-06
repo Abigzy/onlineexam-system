@@ -207,129 +207,73 @@ python scripts/check_inline_js.py
 
 ## 四、目录结构
 
+> 只列**仓库里实际存在的**内容。`.env`、`.venv/`、`db.sqlite3`、`logs/` 等本地文件
+> 已被 `.gitignore` 排除，不在仓库中——clone 下来按「二、快速开始」配好即可。
+
 ```
-OnlineExam/
-├── .env / .env.example          # 环境变量（密钥、数据库、AI Key）
-├── .venv/                       # 虚拟环境
+onlineexam-system/
 ├── manage.py
 ├── requirements.txt
-├── README.md
-├── docs/
-│   ├── 开发路线图.md             # 全部模块规划（本次任务的"施工图"）
-│   └── 进度记录.md               # 已完成 / 待办，支持跨会话续做
-├── scripts/
-│   ├── smoke_test.py            # 端到端冒烟测试（真实 HTTP）
-│   └── check_inline_js.py       # 模板内联 JS 语法检查（渲染后交给 node --check）
-├── OnlineExam/                  # 项目配置包
-│   ├── settings/
-│   │   ├── base.py              # 公共配置
-│   │   ├── development.py       # 开发环境
-│   │   └── production.py        # 生产环境
-│   ├── urls.py                  # 总路由
-│   ├── wsgi.py / asgi.py
-├── apps/                        # 业务模块（一个域一个包）
-│   ├── common/                  # 公共：统一响应 / 分页 / 权限 / 异常 / 页面 mixin
-│   ├── users/                   # 模块一：用户与认证
-│   │   ├── models.py            # 自定义 User（管理员/教师/学生）
-│   │   ├── managers.py          # 自定义 QuerySet
-│   │   ├── serializers.py       # DRF 序列化器
-│   │   ├── views.py             # API 视图
-│   │   ├── views_pages.py       # 页面视图
-│   │   ├── services.py          # 业务服务层（事务）
-│   │   ├── backends.py          # 用户名/邮箱/学号 登录后端
-│   │   ├── urls.py / forms.py / admin.py / signals.py
-│   │   └── tests/               # 测试
-│   ├── ai/                      # 模块二之 A：大模型统一适配层
-│   │   ├── providers/           # base / openai_compatible / mock（四平台统一）
-│   │   ├── prompts/             # 提示词模板（.txt，集中管理）
-│   │   ├── client.py            # AIClient：重试 / 记账 / 场景化调用
-│   │   ├── schemas.py           # 结构化输出解析（模型输出当不可信输入）
-│   │   ├── mocks.py             # 无 Key 时的本地模拟
-│   │   ├── models.py            # AIRequestLog 调用日志
-│   │   └── tests/               # 测试
-│   └── questions/               # 模块二之 B：题库
-│       ├── models.py            # KnowledgePoint / Question / QuestionOption
-│       ├── serializers.py       # 含「学生视角」序列化器（不含答案）
-│       ├── services.py          # 落库校验 + AI 出题/评分服务
-│       ├── importers.py         # CSV / XLSX 导入导出
-│       ├── filters.py / views.py / views_pages.py / urls.py
-│       └── tests/               # 测试
-│   └── papers/                  # 模块三：试卷与组卷
-│       ├── models.py            # Paper / PaperSection / PaperQuestion（三层）
-│       ├── services.py          # PaperService（编排）+ PaperAnalysisService（质量分析）
-│       ├── composer.py          # PaperComposeService：智能组卷算法
-│       ├── ai_services.py       # PaperAIService：组卷说明
-│       ├── exporters.py         # 导出 HTML（可打印）/ Markdown
-│       ├── serializers.py       # 含「学生视角」卷内题目序列化器
-│       ├── filters.py / views.py / views_pages.py / urls.py / constants.py
-│       └── tests/               # 测试
-│   └── exam/                    # 模块四：在线考试
-│       ├── models.py            # Exam / ExamAttempt / Answer
-│       ├── services.py          # ExamService（考务）+ ExamAttemptService（作答全流程）
-│       │                        #   + ExamAnalysisService（看板统计）
-│       ├── serializers.py       # 教师视角 / 学生视角分层（学生视角不含试卷内容）
-│       ├── filters.py / views.py / views_pages.py / urls.py / constants.py
-│       ├── management/commands/seed_exams.py
-│       └── tests/               # 测试（服务层 60 + 接口 48）
-│   ├── grading/                 # 模块五：判分与成绩
-│       ├── models.py            # GradingFeedback（教师复核审计表，唯一的「新表」）
-│       ├── services.py          # ObjectiveGradingService（纯函数判客观）
-│       │                        #   + SubjectiveGradingService（AI 批主观）
-│       │                        #   + GradingService（汇总唯一写入口 + 状态机）
-│       │                        #   + ScoreReportService（成绩单 / 错题本 / 校准）
-│       ├── serializers.py       # 判分 / 复核入参校验
-│       ├── views.py / views_pages.py / urls.py / constants.py
-│       └── tests/               # 测试（客观 28 / 主观 16 / 流程 20 / 复核 22 / 报告 17 / 接口 41）
-│   ├── analytics/               # 模块六：学情分析
-│       ├── models.py            # StudentAnalysisReport（AI 诊断缓存，唯一新表）
-│       ├── services.py          # KnowledgeMasteryService（掌握度 + 向上归并）
-│       │                        #   + TrendService（线性回归趋势）
-│       │                        #   + ClassAnalysisService（分布 / 逐题 / 区分度）
-│       │                        #   + AIAnalysisService（AI 诊断 + 降级 + 缓存）
-│       │                        #   + AnalyticsReportService（页面聚合入口）
-│       ├── serializers.py       # 查询参数 / 诊断入参校验
-│       ├── views.py / views_pages.py / urls.py / constants.py
-│       └── tests/               # 测试（掌握度 13 / 趋势 13 / 班级 10 / AI 19 / 接口 19）
-│   ├── recommend/               # 模块七：个性化推荐（**不建表**，纯只读模型）
-│       ├── services.py          # ContentBasedService（薄弱度 × 难度适配度）
-│       │                        #   + CollaborativeFilteringService（item-based 余弦）
-│       │                        #   + RecommendationService（每日成集 + 理由 + AI 改写）
-│       ├── serializers.py       # 每日练习查询参数 / AI 理由入参校验
-│       ├── views.py / views_pages.py / urls.py / constants.py
-│       └── tests/               # 测试（内容 15 / 协同 18 / 成集 24 / AI 理由 8 / 接口 19）
-│   └── proctoring/              # 模块八：作弊行为检测
-│       ├── models.py            # ExamBehaviorLog（逐条行为埋点，唯一新表；只存事实不存结论）
-│       ├── services.py          # BehaviorLogService（埋点写入 + 保留策略）
-│       │                        #   + RuleEngineService（可解释规则引擎）
-│       │                        #   + AnomalyDetectionService（孤立森林 + 降级）
-│       │                        #   + ProctoringReportService（名单 + 证据链聚合）
-│       ├── serializers.py       # 报告查询参数 / 行为上报字段说明
-│       ├── views.py / views_pages.py / urls.py / constants.py / admin.py
-│       ├── management/commands/purge_behavior_logs.py
-│       └── tests/               # 测试（埋点 18 / 规则 25 / 异常 18 / 接口 23）
-│   └── classroom/               # 模块九：班级管理
-│       ├── models.py            # Classroom（班级实体 + 学生/教师多对多，唯一新表）
-│       ├── services.py          # ClassroomService（建班 / 成员增删 / 学号导入 / 归档）
-│       ├── serializers.py / views.py / views_pages.py / urls.py / admin.py / constants.py
-│       └── tests/               # 测试（服务层 13 / 接口 11）
-│   └── system/                  # 模块十：管理端（**无 models，零迁移**）
-│       ├── services.py          # SystemOverviewService（全部在 SQL 层聚合，无 N+1）
-│       ├── views.py / urls.py   # GET /api/v1/system/overview/
-│       ├── views_pages.py / urls_pages.py  # /manage/ 四页（总览 / 用户 / 组织 / 配置）
-│       └── tests/
-├── templates/                   # 模板
-│   ├── papers/                  # 试卷列表 + 三栏组卷工作台
-│   ├── exam/                    # 考试列表 / 监控看板 / 我的考试 / 答题页 / 结果
-│   ├── grading/                 # 批改工作台 / 班级成绩单 / 错题本
-│   ├── analytics/               # 学情仪表盘 / 学生学情（我的学情）
-│   ├── recommend/               # 每日练习
-│   ├── proctoring/              # 作弊检测看板 / 作答证据链
-│   └── classroom/               # 班级列表 / 班级详情与成员管理
-├── static/                      # 静态资源
-└── media/                       # 用户上传（头像）
+├── .env.example                 配置模板（各厂商 API Key 均为空）
+├── .gitignore / .gitattributes / LICENSE / README.md
+│
+├── OnlineExam/               8  Django 配置包
+│   ├── settings/                 base / development / production 三层拆分
+│   ├── urls.py                   总路由（页面 + API）
+│   └── wsgi.py / asgi.py
+│
+├── apps/                   262  业务模块，一个域一个包
+│   ├── common/              16    统一响应 / 分页 / 权限 / 异常 / 学科作用域
+│   ├── users/               31    用户与认证（三角色、学号派发、多字段登录）
+│   ├── ai/                  27    大模型统一适配层（四平台可切换 + 无 Key 降级 mock）
+│   ├── questions/           24    题库与知识点树（导入导出、AI 出题）
+│   ├── papers/              28    试卷与组卷（AI / 随机 / 手动三种）
+│   ├── exam/                23    在线考试（服务端计时、暂存、乱序、断网续考）
+│   ├── grading/             21    判分与成绩（客观题、AI 批改、教师复核出分）
+│   ├── analytics/           21    学情分析（掌握度、薄弱点、区分度、趋势）
+│   ├── recommend/           18    个性化推荐（每日练习，确定性打散）
+│   ├── proctoring/          21    作弊检测（9 条规则 + 孤立森林，读时现算）
+│   ├── classroom/           19    班级与学科隔离（行政班 / 学科班）
+│   └── system/              12    系统级：接口契约测试、健康检查、前端静态守卫
+│
+├── templates/               31  服务端渲染页面（按角色与模块分目录）
+├── static/                   3  api.js（统一请求与错误渲染）/ style.css / manage.js
+│
+├── scripts/                 30  开发与验证脚本
+│   ├── smoke_test.py            端到端冒烟（196 项，真实 HTTP）
+│   ├── check_inline_js.py       模板内联 JS 语法检查
+│   ├── check_practice_js.py     内联 JS 逻辑校验（真的执行一遍）
+│   ├── browser_walkthrough.py   多角色浏览器走查（需自备 chromedriver）
+│   ├── locustfile.py            性能压测场景
+│   ├── bank_gen/                三个学科的题库生成器
+│   └── testcase_gen/            用例文档生成（md / xlsx / xmind）
+│
+├── docs/                    14  开发文档（测试资产在配套测试项目）
+│   ├── 需求规格说明书.md          FR 编号、权限矩阵、需求 ↔ 实现对照
+│   ├── 接口文档.md               124 个操作
+│   ├── 数据库设计文档.md         15 张表
+│   ├── 开发文档.md / 开发路线图.md / 进度记录.md
+│   ├── 部署文档.md / 项目交付说明.md
+│   ├── 管理端增量PRD.md / 增量设计.md / 类图 / 时序图
+│   └── screenshots/              项目展示图
+│
+└── 题库导入/                  3  三个学科的题库 Excel（可直接导入）
 ```
 
----
+**每个 `apps/<domain>/` 内部遵循同一套分层**：
+
+```
+apps/<domain>/
+├── models.py           数据模型 + 自定义 Manager / QuerySet
+├── serializers.py      DRF 序列化器（教师视角 / 学生视角分开，字段白名单）
+├── views.py            API 视图（瘦：只做参数校验与装配）
+├── views_pages.py      服务端渲染页面视图
+├── services.py         业务逻辑（多步操作在此，带事务）
+├── urls.py
+├── migrations/
+└── tests/              该模块的全部测试
+```
+
 
 ## 五、统一接口约定
 
