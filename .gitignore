@@ -44,3 +44,16 @@ docs/.exec_*.json
 scripts/.perf_meta.json
 scripts/.perf_tokens.json
 *.perf_tokens.json
+
+# ---------------- 测试资产（属于配套测试项目，本地保留、不入本仓库） ----------------
+# 被测系统与测试工程分仓维护：用例、报告、走查清单、执行截图都在测试项目里。
+# 本地保留这些文件，整合测试项目时可直接取用。
+docs/测试用例.md
+docs/OnlineExam-功能测试用例.xlsx
+docs/需求分析与测试点.xmind
+docs/UI走查清单.md
+docs/性能测试报告.md
+docs/管理端测试报告.md
+docs/每日练习冷启动修复-测试报告.md
+docs/exec_shots/
+docs/归档/
