@@ -161,10 +161,13 @@ python manage.py test apps.proctoring -v 2  # 作弊行为检测（84 个）
 python manage.py test apps.classroom -v 2   # 班级管理（24 个）
 
 # 前端质量
-python scripts/check_inline_js.py       # 模板内联 JS **语法**检查（23 个脚本块，需 node）
+python scripts/check_inline_js.py       # 模板内联 JS **语法**检查（26 个脚本块，需 node）
 python scripts/check_practice_js.py     # 页面内联 JS **逻辑**校验（真的执行一遍，23 项）
 
-# 真机浏览器验证（需要 selenium，装在系统 Python 3.11；先起服务）
+# 真机浏览器验证（可选，需 selenium + chromedriver；先起服务）
+#   chromedriver 不入库（24 MB 且与平台相关），请自行下载对应版本：
+#   https://googlechromelabs.github.io/chrome-for-testing/
+#   解压后放到 scripts/drivers/chromedriver(.exe)
 python scripts/browser_check_practice.py
 ```
 
