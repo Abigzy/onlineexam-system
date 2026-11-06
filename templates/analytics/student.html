@@ -1,0 +1,564 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .kpi-card { border-radius: 16px; border: 1px solid var(--line-200, #e8edf4); background: #fff;
+                padding: 14px 16px; height: 100%; }
+    .kpi-card .kpi-label { font-size: 12px; color: #6b7686; }
+    .kpi-card .kpi-value { font-size: 26px; font-weight: 700; line-height: 1.2; }
+    .kpi-card .kpi-foot { font-size: 12px; color: #94a3b8; }
+
+    .chart-card { border-radius: 16px; border: 1px solid var(--line-200, #e8edf4); background: #fff;
+                  height: 100%; }
+    .chart-card .chart-head { padding: 12px 16px 0; display: flex; justify-content: space-between;
+                              align-items: baseline; gap: 8px; }
+    .chart-card .chart-head h6 { margin: 0; font-size: 14px; font-weight: 600; }
+    .chart-card .chart-head .hint { font-size: 12px; color: #94a3b8; }
+    .chart-box { width: 100%; height: 280px; padding: 6px 8px 10px; }
+
+    .weak-item { border: 1px solid #fee2e2; background: #fff7f7; border-radius: 12px;
+                 padding: 10px 12px; margin-bottom: 8px; }
+    .weak-item.medium { border-color: #fef3c7; background: #fffdf5; }
+    .weak-item .kp-name { font-weight: 600; }
+    .weak-bar { height: 6px; border-radius: 999px; background: #f1f5f9; overflow: hidden; margin-top: 6px; }
+    .weak-bar > span { display: block; height: 100%; }
+
+    .ai-panel { border-radius: 16px; border: 1px solid #ddd6fe; background: linear-gradient(180deg, #faf9ff, #ffffff);
+                padding: 16px 18px; height: 100%; }
+    .ai-panel .level-chip { padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .ai-panel ul { padding-left: 18px; margin-bottom: 0; }
+    .ai-panel li { margin-bottom: 6px; line-height: 1.65; }
+
+    .mini-table { font-size: 13px; }
+    .mini-table thead th { font-size: 12px; color: #6b7686; font-weight: 600;
+                           border-bottom: 1px solid var(--line-200, #e8edf4); }
+    .mastery-chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; }
+    .mastery-chip.mastered { background: #ccfbf1; color: #115e59; }
+    .mastery-chip.proficient { background: #dbeafe; color: #1e40af; }
+    .mastery-chip.basic { background: #fef3c7; color: #92400e; }
+    .mastery-chip.weak { background: #fee2e2; color: #991b1b; }
+    .mastery-chip.unknown { background: #f1f5f9; color: #475569; }
+    .progress-thin { height: 6px; border-radius: 999px; background: #eef2f7; overflow: hidden; }
+    .progress-thin > span { display: block; height: 100%; background: linear-gradient(90deg, #6366f1, #22c1a5); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">{{ page_title }}</h4>
+            <div class="text-muted small">
+                <span id="student-meta">加载中…</span>
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <select class="form-select form-select-sm" id="subject-select" style="min-width:180px">
+                <option value="">全部学科</option>
+            </select>
+            <button class="btn btn-primary btn-sm" id="btn-diagnose">
+                <i class="bi bi-stars me-1"></i> 生成 AI 学情诊断
+            </button>
+            {% if is_self %}
+            <a href="{% url 'wrong-book' %}" class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-journal-bookmark me-1"></i> 错题本
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="container py-4">
+    <div id="report-host">
+        <div class="text-center text-muted py-5">加载中…</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(function () {
+    'use strict';
+
+    const STUDENT_ID = {{ student_id }};
+    const charts = {};
+    let state = { report: null };
+
+    function $(id) { return document.getElementById(id); }
+    function esc(text) {
+        return String(text === null || text === undefined ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function num(value, digits) {
+        if (value === null || value === undefined) return '—';
+        const v = Number(value);
+        if (!isFinite(v)) return '—';
+        return digits === undefined ? (Number.isInteger(v) ? String(v) : v.toFixed(1)) : v.toFixed(digits);
+    }
+    function pct(value) { return value === null || value === undefined ? '—' : num(value, 1) + '%'; }
+
+    function ensureChart(key, elementId) {
+        if (!window.echarts) return null;
+        if (!charts[key]) {
+            const element = $(elementId);
+            element.innerHTML = '';
+            charts[key] = echarts.init(element);
+        }
+        return charts[key];
+    }
+
+    /** 没有数据时把图位换成一行提示（先 dispose 再改 DOM，见 dashboard.html 的说明）。 */
+    function emptyChart(key, elementId, message) {
+        if (charts[key]) {
+            charts[key].dispose();
+            delete charts[key];
+        }
+        const element = $(elementId);
+        if (element) {
+            element.innerHTML = '<div class="text-muted small text-center pt-5">' + esc(message) + '</div>';
+        }
+    }
+
+    const AXIS = {
+        axisLabel: { fontSize: 11, color: '#475569' },
+        axisLine: { lineStyle: { color: '#e2e8f0' } },
+        splitLine: { lineStyle: { color: '#eef2f7' } },
+    };
+
+    /* ---------------- 加载 ---------------- */
+    function currentSubject() { return $('subject-select').value || ''; }
+
+    async function load() {
+        const host = $('report-host');
+        host.innerHTML = '<div class="text-center text-muted py-5">加载中…</div>';
+        let data;
+        try {
+            data = await API.get('/analytics/students/' + STUDENT_ID + '/report/',
+                { subject: currentSubject() });
+        } catch (err) {
+            host.innerHTML = '<div class="text-center text-danger py-5">' + esc(UI.errorText(err)) + '</div>';
+            return;
+        }
+        state.report = data;
+        renderSubjects(data.subjects || []);
+        render(data, host);
+    }
+
+    function renderSubjects(subjects) {
+        const select = $('subject-select');
+        const current = select.value;
+        select.innerHTML = '<option value="">全部学科</option>'
+            + subjects.map(function (item) {
+                return '<option value="' + esc(item) + '">' + esc(item) + '</option>';
+            }).join('');
+        select.value = subjects.indexOf(current) >= 0 ? current : '';
+    }
+
+    /* ---------------- 渲染 ---------------- */
+    function render(data, host) {
+        const mastery = data.mastery || {};
+        const summary = mastery.summary || {};
+        const trend = data.trend || {};
+        const student = data.student || {};
+
+        $('student-meta').textContent = (student.name || student.username || '学生')
+            + (student.student_no ? '（' + student.student_no + '）' : '')
+            + ' · 统计范围：' + (data.scope_display || '全部学科');
+
+        if (!summary.answered) {
+            host.innerHTML = '<div class="text-center text-muted py-5">'
+                + '<i class="bi bi-clipboard-data d-block mb-2" style="font-size:36px;opacity:.4"></i>'
+                + '还没有已判分的答题记录。<br>'
+                + '<span class="small">交卷并判分后，这里会显示知识点掌握度、成绩趋势与学情诊断。</span>'
+                + '</div>';
+            return;
+        }
+
+        host.innerHTML = kpiRow(summary, trend)
+            + '<div class="row g-3 mt-1">'
+            + chartCard('chart-radar', '知识点掌握度', '按答题量取前 8 个知识点')
+            + chartCard('chart-level', '掌握度分布', '各知识点所处档位')
+            + '</div>'
+            + '<div class="row g-3 mt-1">'
+            + '<div class="col-12"><div class="chart-card"><div class="chart-head">'
+            + '<h6>成绩趋势</h6><span class="hint" id="trend-hint"></span></div>'
+            + '<div class="chart-box" id="chart-trend" style="height:300px"></div></div></div>'
+            + '</div>'
+            + '<div class="row g-3 mt-3">'
+            + weakCard(mastery)
+            + aiCard(data.diagnosis)
+            + '</div>'
+            + masteryTable(mastery);
+
+        renderRadar(mastery.radar || {});
+        renderLevelChart(summary.level_counts || {});
+        renderTrend(trend);
+        bindResize();
+    }
+
+    function kpiRow(summary, trend) {
+        const fit = trend.fit || {};
+        const trendSummary = trend.summary || {};
+        const direction = { up: '上升', down: '下降', flat: '持平', unknown: '数据不足' }[fit.direction] || '—';
+        return '<div class="row g-3">'
+            + kpi('累计答题', num(summary.answered) + ' 题',
+                  '涉及 ' + num(summary.knowledge_point_count) + ' 个知识点')
+            + kpi('整体正确率', pct((summary.accuracy || 0) * 100),
+                  '得分率 ' + pct((summary.score_ratio || 0) * 100))
+            + kpi('已掌握', num(summary.mastered_count) + ' 个',
+                  '较熟练以上')
+            + kpi('薄弱知识点', num(summary.weak_count) + ' 个',
+                  '数据不足 ' + num(summary.insufficient_count) + ' 个')
+            + kpi('作答次数', num(trendSummary.count) + ' 次',
+                  '平均得分率 ' + pct(trendSummary.avg_percent))
+            + kpi('成绩趋势', direction,
+                  fit.predict_next !== null && fit.predict_next !== undefined
+                      ? '下次预测 ' + pct(fit.predict_next * 100)
+                      : '需至少 ' + num((state.report.thresholds || {}).trend_min_points) + ' 次作答才可预测')
+            + '</div>';
+    }
+
+    function kpi(label, value, foot) {
+        return '<div class="col-6 col-md-4 col-xl-2"><div class="kpi-card">'
+            + '<div class="kpi-label">' + esc(label) + '</div>'
+            + '<div class="kpi-value">' + value + '</div>'
+            + '<div class="kpi-foot">' + foot + '</div>'
+            + '</div></div>';
+    }
+
+    function chartCard(id, title, hint) {
+        return '<div class="col-12 col-xl-6"><div class="chart-card">'
+            + '<div class="chart-head"><h6>' + esc(title) + '</h6>'
+            + '<span class="hint">' + esc(hint) + '</span></div>'
+            + '<div class="chart-box" id="' + id + '"></div>'
+            + '</div></div>';
+    }
+
+    /* ---- 雷达图 ---- */
+    function renderRadar(radar) {
+        const indicator = radar.indicator || [];
+        if (!indicator.length) {
+            emptyChart('radar', 'chart-radar', '暂无知识点数据');
+            return;
+        }
+        const chart = ensureChart('radar', 'chart-radar');
+        if (!chart) return;
+        chart.setOption({
+            tooltip: {
+                formatter: function () {
+                    return indicator.map(function (item, index) {
+                        return esc(item.name) + '：' + (radar.values || [])[index] + '%';
+                    }).join('<br>');
+                },
+            },
+            radar: {
+                indicator: indicator,
+                radius: '64%',
+                splitNumber: 4,
+                axisName: { fontSize: 11, color: '#475569' },
+                splitLine: { lineStyle: { color: '#e2e8f0' } },
+                splitArea: { areaStyle: { color: ['#fcfdff', '#f8fafc'] } },
+                axisLine: { lineStyle: { color: '#e2e8f0' } },
+            },
+            series: [{
+                type: 'radar',
+                data: [{
+                    value: radar.values || [],
+                    name: '正确率(%)',
+                    areaStyle: { color: 'rgba(99,102,241,.22)' },
+                    lineStyle: { color: '#6366f1', width: 2 },
+                    itemStyle: { color: '#6366f1' },
+                }],
+            }],
+        }, true);
+        chart.resize();
+    }
+
+    /* ---- 掌握度分布 ---- */
+    function renderLevelChart(levelCounts) {
+        const meta = {
+            mastered: { label: '已掌握', color: '#14b8a6' },
+            proficient: { label: '较熟练', color: '#3b82f6' },
+            basic: { label: '基本掌握', color: '#f59e0b' },
+            weak: { label: '薄弱', color: '#ef4444' },
+            unknown: { label: '数据不足', color: '#cbd5e1' },
+        };
+        const data = Object.keys(meta).map(function (key) {
+            return {
+                name: meta[key].label,
+                value: levelCounts[key] || 0,
+                itemStyle: { color: meta[key].color },
+            };
+        }).filter(function (row) { return row.value > 0; });
+
+        if (!data.length) {
+            emptyChart('level', 'chart-level', '暂无数据');
+            return;
+        }
+        const chart = ensureChart('level', 'chart-level');
+        if (!chart) return;
+        chart.setOption({
+            tooltip: { trigger: 'item', formatter: '{b}：{c} 个（{d}%）' },
+            legend: { bottom: 0, itemWidth: 10, itemHeight: 8, textStyle: { fontSize: 11 } },
+            series: [{
+                type: 'pie', radius: ['44%', '68%'], center: ['50%', '46%'],
+                label: { formatter: '{b}\n{c} 个', fontSize: 11, color: '#475569' },
+                labelLine: { length: 8, length2: 8 },
+                data: data,
+            }],
+        }, true);
+        chart.resize();
+    }
+
+    /* ---- 趋势折线 ---- */
+    function renderTrend(trend) {
+        const points = trend.points || [];
+        if (!points.length) {
+            emptyChart('trend', 'chart-trend', '暂无成绩记录');
+            return;
+        }
+        const chart = ensureChart('trend', 'chart-trend');
+        if (!chart) return;
+        const labels = points.map(function (row) { return row.exam_title; });
+        const mine = points.map(function (row) { return row.percent; });
+        const classAvg = points.map(function (row) {
+            return row.class_avg_percent === null || row.class_avg_percent === undefined
+                ? null : row.class_avg_percent;
+        });
+
+        const series = [{
+            name: '我的得分率', type: 'line', smooth: true, symbolSize: 7,
+            data: mine, itemStyle: { color: '#6366f1' },
+            lineStyle: { color: '#6366f1', width: 2.5 },
+            areaStyle: { color: 'rgba(99,102,241,.12)' },
+            label: { show: true, fontSize: 11, color: '#475569', formatter: '{c}%' },
+        }];
+
+        if (classAvg.some(function (v) { return v !== null; })) {
+            series.push({
+                name: '班级平均', type: 'line', smooth: true, symbol: 'none',
+                data: classAvg, lineStyle: { color: '#94a3b8', width: 1.6, type: 'dashed' },
+                itemStyle: { color: '#94a3b8' },
+            });
+        }
+
+        const fit = trend.fit || {};
+        if (fit.fitted && fit.fitted.length) {
+            const fitted = fit.fitted.map(function (value) { return Math.round(value * 1000) / 10; });
+            if (fit.predict_next !== null && fit.predict_next !== undefined) {
+                labels.push('下次预测');
+                mine.push(null);
+                classAvg.push(null);
+                fitted.push(Math.round(fit.predict_next * 1000) / 10);
+            }
+            series.push({
+                name: '趋势线（线性回归）', type: 'line', smooth: false,
+                symbol: 'none', data: fitted,
+                lineStyle: { color: '#0ea5a5', width: 1.8, type: 'dotted' },
+            });
+            $('trend-hint').textContent = '回归斜率 ' + num(fit.slope, 4)
+                + '（每次作答得分率变化）'
+                + (fit.r2 === null || fit.r2 === undefined ? '' : '，拟合优度 R²=' + num(fit.r2, 3));
+        } else {
+            $('trend-hint').textContent = '作答次数不足，暂不做回归预测';
+        }
+
+        chart.setOption({
+            grid: { left: 48, right: 24, top: 34, bottom: 52 },
+            tooltip: {
+                trigger: 'axis',
+                formatter: function (params) {
+                    const index = params[0].dataIndex;
+                    const point = points[index];
+                    const lines = [params[0].axisValue];
+                    params.forEach(function (item) {
+                        lines.push(item.marker + item.seriesName + '：'
+                            + (item.value === null || item.value === undefined ? '—' : item.value + '%'));
+                    });
+                    if (point && point.submitted_at) lines.push('时间：' + esc(point.submitted_at));
+                    return lines.join('<br>');
+                },
+            },
+            legend: { top: 0, itemWidth: 12, itemHeight: 8, textStyle: { fontSize: 11 } },
+            xAxis: Object.assign({
+                type: 'category', data: labels,
+                axisLabel: { fontSize: 11, color: '#475569', interval: 0,
+                             formatter: function (value) {
+                                 return value.length > 10 ? value.slice(0, 9) + '…' : value;
+                             } },
+            }, AXIS),
+            yAxis: Object.assign({ type: 'value', max: 100, name: '得分率(%)',
+                                   nameTextStyle: { fontSize: 11, color: '#94a3b8' },
+                                   axisLabel: { fontSize: 11, color: '#475569',
+                                                formatter: '{value}%' } }, AXIS),
+            series: series,
+        }, true);
+        chart.resize();
+    }
+
+    /* ---- 薄弱知识点 ---- */
+    function weakCard(mastery) {
+        const weak = mastery.weak_points || [];
+        const insufficient = mastery.insufficient || [];
+        const body = weak.length
+            ? weak.map(function (row) {
+                const ratio = (row.accuracy || 0) * 100;
+                const tone = ratio < 40 ? '' : 'medium';
+                const color = ratio < 40 ? '#ef4444' : '#f59e0b';
+                return '<div class="weak-item ' + tone + '">'
+                    + '<div class="d-flex justify-content-between align-items-start gap-2">'
+                    + '<div class="kp-name">' + esc(row.name) + '</div>'
+                    + '<div class="text-nowrap small"><span class="fw-semibold">' + num(ratio, 1) + '%</span>'
+                    + '<span class="text-muted"> · ' + row.answered + ' 题</span></div></div>'
+                    + '<div class="small text-muted">' + esc(row.full_path) + '</div>'
+                    + '<div class="weak-bar"><span style="width:' + Math.round(ratio)
+                    + '%;background:' + color + '"></span></div>'
+                    + '</div>';
+            }).join('')
+            : '<div class="text-muted small py-3 text-center">'
+              + '没有低于达标线的知识点，继续保持 🎉</div>';
+
+        const foot = insufficient.length
+            ? '<div class="small text-muted mt-2">另有 ' + insufficient.length
+              + ' 个知识点因答题数不足 ' + num((state.report.thresholds || {}).min_samples)
+              + ' 题，暂不判定掌握度。</div>'
+            : '';
+
+        return '<div class="col-12 col-xl-6"><div class="chart-card"><div class="chart-head">'
+            + '<h6>薄弱知识点</h6><span class="hint">正确率低于 '
+            + num(((state.report.thresholds || {}).weakness_ratio || 0.6) * 100, 0) + '%</span></div>'
+            + '<div class="p-3 pt-2" style="max-height:320px;overflow:auto">' + body + foot
+            + '</div></div></div>';
+    }
+
+    /* ---- AI 诊断 ---- */
+    function aiCard(diagnosis) {
+        if (!diagnosis) {
+            return '<div class="col-12 col-xl-6"><div class="ai-panel">'
+                + '<div class="d-flex justify-content-between align-items-center mb-2">'
+                + '<h6 class="mb-0"><i class="bi bi-stars text-primary"></i> AI 学情诊断</h6></div>'
+                + '<div class="text-muted small py-4 text-center">'
+                + '还没有生成过诊断。点右上角「生成 AI 学情诊断」，' 
+                + '系统会把已算好的知识点正确率交给大模型，产出一份可执行的学习建议。'
+                + '<br><span class="text-muted">（同一统计范围下 24 小时内复用缓存，不会重复调用大模型）</span>'
+                + '</div></div></div>';
+        }
+
+        const levels = { '优秀': '#ccfbf1|#115e59', '良好': '#dbeafe|#1e40af',
+                         '中等': '#fef3c7|#92400e', '待提升': '#fee2e2|#991b1b' };
+        const chosen = levels[diagnosis.overall_level] || '#f1f5f9|#475569';
+        const parts = chosen.split('|');
+
+        const weak = diagnosis.weak_points || [];
+        const strengths = diagnosis.strengths || [];
+        const advice = diagnosis.advice || [];
+
+        return '<div class="col-12 col-xl-6"><div class="ai-panel">'
+            + '<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">'
+            + '<h6 class="mb-0"><i class="bi bi-stars text-primary"></i> AI 学情诊断</h6>'
+            + '<div class="d-flex align-items-center gap-2">'
+            + '<span class="level-chip" style="background:' + parts[0] + ';color:' + parts[1] + '">'
+            + esc(diagnosis.overall_level || '—') + '</span>'
+            + (diagnosis.is_mock ? '<span class="badge badge-soft badge-soft-gray">本地模拟</span>' : '')
+            + (diagnosis.degraded ? '<span class="badge badge-soft badge-soft-amber">降级生成</span>' : '')
+            + '</div></div>'
+            + '<div class="small text-muted mb-2">生成时间：' + esc(diagnosis.generated_at || '—')
+            + ' · 样本 ' + num(diagnosis.sample_size) + ' 题'
+            + (diagnosis.stale ? ' · <span class="text-warning">已过期，建议重新生成</span>' : '')
+            + '</div>'
+            + '<p class="mb-3" style="line-height:1.75">' + esc(diagnosis.summary || '') + '</p>'
+
+            + (weak.length ? '<div class="small fw-semibold mb-1">待补强的知识点</div>'
+                + weak.map(function (row) {
+                    const tone = { high: 'high', medium: 'medium', low: 'low' }[row.severity] || 'low';
+                    return '<div class="mb-2"><span class="weak-chip ' + tone + '">'
+                        + esc(row.knowledge_point) + '</span>'
+                        + (row.accuracy === null || row.accuracy === undefined ? ''
+                           : '<span class="text-muted small ms-2">正确率 ' + num(row.accuracy * 100, 1) + '%</span>')
+                        + (row.comment ? '<div class="small text-muted mt-1">' + esc(row.comment) + '</div>' : '')
+                        + '</div>';
+                }).join('') : '')
+
+            + (strengths.length ? '<div class="small fw-semibold mt-3 mb-1">掌握较好的知识点</div>'
+                + '<div class="small">' + strengths.map(function (item) {
+                    return '<span class="badge badge-soft badge-soft-teal me-1 mb-1">' + esc(item) + '</span>';
+                }).join('') + '</div>' : '')
+
+            + (advice.length ? '<div class="small fw-semibold mt-3 mb-1">学习建议</div>'
+                + '<ul class="small">' + advice.map(function (item) {
+                    return '<li>' + esc(item) + '</li>';
+                }).join('') + '</ul>' : '')
+            + '</div></div>';
+    }
+
+    /* ---- 掌握度明细 ---- */
+    function masteryTable(mastery) {
+        const items = mastery.items || [];
+        const rows = items.map(function (row) {
+            return '<tr>'
+                + '<td class="text-truncate" style="max-width:220px" title="' + esc(row.full_path) + '">'
+                + esc(row.full_path) + '</td>'
+                + '<td class="text-center">' + row.answered + '</td>'
+                + '<td class="text-center">' + row.correct + '</td>'
+                + '<td style="min-width:120px"><div class="d-flex align-items-center gap-2">'
+                + '<div class="progress-thin flex-grow-1"><span style="width:'
+                + Math.round((row.accuracy || 0) * 100) + '%"></span></div>'
+                + '<span class="small text-nowrap">' + num((row.accuracy || 0) * 100, 1) + '%</span></div></td>'
+                + '<td class="text-center">' + num((row.score_ratio || 0) * 100, 1) + '%</td>'
+                + '<td class="text-center"><span class="mastery-chip ' + row.mastery_level + '">'
+                + esc(row.mastery_level_display) + '</span></td>'
+                + '</tr>';
+        }).join('');
+
+        return '<div class="row g-3 mt-3"><div class="col-12"><div class="chart-card">'
+            + '<div class="chart-head"><h6>知识点掌握度明细</h6>'
+            + '<span class="hint">正确率 = 达标题数 / 已判分题数；主观题按得分率 ≥60% 计为达标</span></div>'
+            + '<div class="table-responsive p-3 pt-2"><table class="table mini-table align-middle mb-0">'
+            + '<thead><tr><th>知识点</th><th class="text-center">答题</th><th class="text-center">答对</th>'
+            + '<th>正确率</th><th class="text-center">得分率</th><th class="text-center">掌握度</th>'
+            + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+            + '</div></div></div>';
+    }
+
+    /* ---------------- 事件 ---------------- */
+    let resizeTimer = null;
+    function bindResize() {
+        if (bindResize.done) return;
+        bindResize.done = true;
+        window.addEventListener('resize', function () {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(function () {
+                Object.keys(charts).forEach(function (key) { charts[key].resize(); });
+            }, 160);
+        });
+    }
+
+    $('subject-select').addEventListener('change', load);
+
+    $('btn-diagnose').addEventListener('click', async function () {
+        const button = this;
+        const force = button.dataset.generated === '1';
+        if (force && !window.confirm('重新生成会再次调用大模型（可能产生费用），确定继续？')) return;
+        UI.setBusy(button, true, '生成中…');
+        try {
+            const result = await API.post('/analytics/students/' + STUDENT_ID + '/diagnosis/',
+                { subject: currentSubject(), force: force });
+            button.dataset.generated = '1';
+            button.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i> 重新生成诊断';
+            UI.success(result.cached ? '已返回缓存的诊断' : '学情诊断已生成');
+            await load();
+        } catch (err) {
+            UI.error(UI.errorText(err));
+        } finally {
+            UI.setBusy(button, false);
+        }
+    });
+
+    load();
+})();
+</script>
+{% endblock %}

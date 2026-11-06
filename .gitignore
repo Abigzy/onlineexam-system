@@ -1,0 +1,46 @@
+# ---------------- Python ----------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ---------------- Django ----------------
+*.log
+db.sqlite3
+db.sqlite3-journal
+/staticfiles/
+/media/
+
+# ---------------- 环境变量（含密钥，禁止提交） ----------------
+.env
+.env.local
+.env.*.local
+
+# ---------------- 编辑器 / 系统 ----------------
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---------------- 生产日志目录（production.py 启动时自动创建） ----------------
+/logs/
+
+# ---------------- 本地工具与工作笔记（不属于项目内容） ----------------
+.workbuddy/
+.cache/
+
+# ---------------- 浏览器驱动（24MB 二进制，平台相关，请自行下载） ----------------
+# 用途：scripts/browser_walkthrough.py 的真机浏览器验证。
+# 用法：从 https://googlechromelabs.github.io/chrome-for-testing/ 下载对应平台版本，
+#       解压后把 chromedriver(.exe) 放到 scripts/drivers/ 下即可。
+scripts/drivers/
+
+# ---------------- 测试执行产物（缓存 / 凭据，可重新生成，禁止提交） ----------------
+# .perf_tokens.json 里是真实 JWT，绝不能进仓库
+docs/.exec_*.json
+scripts/.perf_meta.json
+scripts/.perf_tokens.json
+*.perf_tokens.json

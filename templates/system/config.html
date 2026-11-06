@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}系统配置 · 管理控制台{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">系统配置</h4>
+            <div class="text-muted small">AI Provider 诊断、近期用量与运行环境（只读；密钥不会在页面回显）</div>
+        </div>
+        <a href="{% url 'manage-dashboard' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-speedometer2 me-1"></i> 回到数据总览
+        </a>
+    </div>
+</div>
+
+<div class="container py-4">
+
+    {% if provider.active_is_mock %}
+    <!-- AC-31：未配置任何 Key 时的警示条，页面不报错 -->
+    <div class="alert alert-warning py-2 small shadow-sm" role="alert">
+        <i class="bi bi-info-circle me-1"></i>
+        <b>当前为本地模拟模式（mock）</b>：AI 功能返回示例内容，不影响功能演示。
+        若需真实调用，请在 <code>.env</code> 中配置对应平台的 <code>API_KEY</code> 后重启服务。
+    </div>
+    {% endif %}
+
+    <!-- Provider 现状 -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value" style="font-size:18px">{{ provider.current }}</div>
+                <div class="stat-label">当前 AI Provider</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value" style="font-size:18px">
+                    {% if provider.active_is_mock %}本地模拟{% else %}真实调用{% endif %}
+                </div>
+                <div class="stat-label">生效模式</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ ai.calls_recent }}</div>
+                <div class="stat-label">近 {{ system.recent_days }} 日调用次数</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ ai.tokens_recent }}</div>
+                <div class="stat-label">近 {{ system.recent_days }} 日 Token 总量</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-12 col-lg-7">
+            <div class="table-card">
+                <div class="p-3 border-bottom fw-semibold small">
+                    Provider 配置状态
+                    <span class="text-muted fw-normal">（只显示「已配置 / 未配置」，不回显密钥，AC-32）</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>平台</th>
+                                <th class="d-none d-md-table-cell">模型</th>
+                                <th>密钥状态</th>
+                                <th>当前</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in provider.providers %}
+                            <tr>
+                                <td class="small">
+                                    {{ item.display_name }}
+                                    <div class="text-muted font-monospace" style="font-size:11px">{{ item.key }}</div>
+                                </td>
+                                <td class="d-none d-md-table-cell small text-muted">{{ item.model|default:"—" }}</td>
+                                <td>
+                                    {% if item.configured %}
+                                        <span class="badge badge-soft badge-soft-teal">已配置</span>
+                                    {% else %}
+                                        <span class="badge badge-soft badge-soft-gray">未配置</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.is_current %}
+                                        <i class="bi bi-check-circle-fill text-success"></i>
+                                    {% else %}
+                                        <span class="text-muted small">—</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="p-3 border-top small text-muted">
+                    允许降级为本地模拟：{% if provider.allow_mock %}是{% else %}否{% endif %}
+                    · 近 {{ system.recent_days }} 日失败率：{{ ai.fail_rate }}%
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-lg-5">
+            <div class="table-card">
+                <div class="p-3 border-bottom fw-semibold small">运行环境</div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <tbody>
+                            <tr><td class="text-muted small">Django</td><td class="small fw-semibold">{{ system.django_version }}</td></tr>
+                            <tr><td class="text-muted small">Python</td><td class="small">{{ system.python_version }}</td></tr>
+                            <tr>
+                                <td class="text-muted small">数据库</td>
+                                <td class="small">
+                                    {{ system.database_vendor }}
+                                    <span class="text-muted">{{ system.database_version }}</span>
+                                </td>
+                            </tr>
+                            <tr><td class="text-muted small">库名</td><td class="small text-truncate" style="max-width:220px">{{ system.database_name }}</td></tr>
+                            <tr><td class="text-muted small">时区</td><td class="small">{{ system.time_zone }}</td></tr>
+                            <tr>
+                                <td class="text-muted small">调试模式</td>
+                                <td class="small">
+                                    {% if system.debug %}
+                                        <span class="badge badge-soft badge-soft-amber">已开启</span>
+                                    {% else %}
+                                        <span class="badge badge-soft badge-soft-gray">关闭</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr><td class="text-muted small">考试全局参数</td><td class="small text-muted">只读（本期不支持在线修改）</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- U-7：接口文档与 Django 后台从一级导航收进这里 -->
+            <div class="table-card mt-3">
+                <div class="p-3 border-bottom fw-semibold small">
+                    <i class="bi bi-tools me-1"></i> 开发者工具
+                </div>
+                <div class="p-3 d-flex flex-column gap-2">
+                    <a href="{% url 'swagger-ui' %}" target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm text-start">
+                        <i class="bi bi-braces me-1"></i> 接口文档（Swagger）
+                        <span class="text-muted font-monospace ms-1" style="font-size:11px">/api/docs/</span>
+                    </a>
+                    <a href="/admin/" target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm text-start">
+                        <i class="bi bi-gear me-1"></i> Django 原生后台
+                        <span class="text-muted font-monospace ms-1" style="font-size:11px">/admin/</span>
+                    </a>
+                    <a href="{% url 'health' %}" target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm text-start">
+                        <i class="bi bi-heart-pulse me-1"></i> 健康检查
+                        <span class="text-muted font-monospace ms-1" style="font-size:11px">/api/health/</span>
+                    </a>
+                    <p class="text-muted small mb-0">
+                        原生后台仅作为应急兜底，日常账号治理请使用「用户管理」。
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

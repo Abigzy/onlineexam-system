@@ -1,0 +1,459 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}批改工作台{% endblock %}
+
+{% block extra_css %}
+<style>
+    .wb-grid { display: grid; grid-template-columns: minmax(280px, 340px) 1fr; gap: 18px; }
+    @media (max-width: 991px) { .wb-grid { grid-template-columns: 1fr; } }
+
+    .queue-item { border: 1px solid var(--line-200, #e8edf4); border-radius: 12px; padding: 10px 12px;
+                  cursor: pointer; transition: all .15s; background: #fff; margin-bottom: 8px; }
+    .queue-item:hover { border-color: var(--brand-500, #4f7cff); box-shadow: 0 4px 14px rgba(79,124,255,.10); }
+    .queue-item.active { border-color: var(--brand-500, #4f7cff); background: #f5f8ff; }
+    .queue-item .q-meta { font-size: 12px; color: #6b7686; }
+    .queue-item .q-pending { font-size: 12px; }
+
+    .grade-card { border: 1px solid var(--line-200, #e8edf4); border-radius: 14px; background: #fff;
+                  padding: 14px 16px; margin-bottom: 14px; }
+    .grade-card.done { border-color: #cde9d8; background: #fbfefc; }
+    .grade-card .q-stem { font-weight: 600; line-height: 1.65; }
+    .answer-box { background: #f7f9fc; border-radius: 10px; padding: 10px 12px; white-space: pre-wrap;
+                  font-size: 13px; line-height: 1.7; word-break: break-word; }
+    .answer-box.empty { color: #98a2b3; font-style: italic; }
+    .ref-box { background: #f4fbf6; border-left: 3px solid #38b27a; border-radius: 8px;
+               padding: 8px 12px; font-size: 13px; white-space: pre-wrap; line-height: 1.7; }
+    .ai-box { background: #f6f4ff; border-left: 3px solid #7c6cf6; border-radius: 8px;
+              padding: 8px 12px; font-size: 13px; white-space: pre-wrap; line-height: 1.7; }
+    .score-input { width: 92px; }
+    /* 待批改队列固定在视口内：Grid 子项必须 align-self:start，否则被拉伸到与右列等高、sticky 失效
+       top 取导航栏实测高度 74.6px + 约 13px 间隙 */
+    .wb-sticky { position: sticky; top: 88px; align-self: start;
+                 max-height: calc(100vh - 88px - 24px); overflow-y: auto; }
+    .mini-prog { height: 6px; border-radius: 999px; background: #eef2f7; overflow: hidden; }
+    .mini-prog > span { display: block; height: 100%; background: linear-gradient(90deg, #4f7cff, #22c1a5); }
+    .type-chip { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: #eef3ff; color: #3d5cc4; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">批改工作台</h4>
+            <div class="text-muted small">左边选学生，右边逐题批改：采纳 AI 建议 或 直接给分</div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <select class="form-select form-select-sm" id="exam-select" style="min-width:240px">
+                <option value="">加载中…</option>
+            </select>
+            <a href="#" class="btn btn-outline-secondary btn-sm" id="btn-scoreboard">
+                <i class="bi bi-list-ol me-1"></i> 班级成绩单
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="container py-4">
+    <div class="wb-grid">
+        <!-- 左：待批改队列 -->
+        <div class="wb-sticky">
+            <div class="card border-0 shadow-sm" style="border-radius:16px">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0"><i class="bi bi-inbox me-1"></i> 待批改</h6>
+                        <label class="small text-muted mb-0">
+                            <input type="checkbox" id="chk-all"> 含已批完
+                        </label>
+                    </div>
+                    <div id="queue-list" class="small text-muted">加载中…</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右：逐题批改 -->
+        <div>
+            <div id="attempt-panel">
+                <div class="text-center text-muted py-5">
+                    <i class="bi bi-clipboard-check d-block mb-2" style="font-size:36px;opacity:.35"></i>
+                    从左侧选一位考生开始批改
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(function () {
+    'use strict';
+
+    const INITIAL_EXAM_ID = {{ exam_id|default:"null" }};
+    let currentExamId = INITIAL_EXAM_ID;
+    let currentAttemptId = null;
+
+    function esc(text) {
+        return String(text === null || text === undefined ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function num(value) {
+        const v = Number(value || 0);
+        return Number.isInteger(v) ? String(v) : v.toFixed(1);
+    }
+    function typeLabel(text) { return esc(text || ''); }
+
+    /* ---------------- 考试选择器 ---------------- */
+    async function loadExams() {
+        const select = document.getElementById('exam-select');
+        let data;
+        try {
+            data = await API.get('/grading/exams/');
+        } catch (err) {
+            select.innerHTML = '<option value="">加载失败</option>';
+            return;
+        }
+        const rows = data.results || [];
+        if (!rows.length) {
+            select.innerHTML = '<option value="">暂无需要批改的考试</option>';
+            document.getElementById('queue-list').innerHTML = '还没有学生交卷。';
+            return;
+        }
+        select.innerHTML = rows.map(function (row) {
+            return '<option value="' + row.id + '">' + esc(row.title)
+                + '（待批 ' + row.submitted_total + ' / 共 ' + row.attempt_total + '）</option>';
+        }).join('');
+        if (!currentExamId || !rows.some(function (r) { return r.id === currentExamId; })) {
+            currentExamId = rows[0].id;
+        }
+        select.value = String(currentExamId);
+        updateScoreboardLink();
+    }
+
+    function updateScoreboardLink() {
+        const link = document.getElementById('btn-scoreboard');
+        if (currentExamId) {
+            link.href = '/grading/exams/' + currentExamId + '/scoreboard/';
+            link.classList.remove('disabled');
+        } else {
+            link.href = '#';
+            link.classList.add('disabled');
+        }
+    }
+
+    /* ---------------- 待批改队列 ---------------- */
+    async function loadQueue() {
+        const host = document.getElementById('queue-list');
+        if (!currentExamId) { host.innerHTML = '请先选择考试。'; return; }
+        const onlyPending = document.getElementById('chk-all').checked ? 'false' : 'true';
+        let data;
+        try {
+            data = await API.get('/grading/queue/', { exam_id: currentExamId, only_pending: onlyPending });
+        } catch (err) {
+            host.innerHTML = '<span class="text-danger">' + esc(UI.errorText(err)) + '</span>';
+            return;
+        }
+        const rows = data.results || [];
+        if (!rows.length) {
+            host.innerHTML = onlyPending === 'true'
+                ? '<span class="text-success">全部批改完成 🎉</span>'
+                : '这场考试还没有交卷记录。';
+            return;
+        }
+        host.innerHTML = rows.map(function (row) {
+            const active = row.attempt_id === currentAttemptId ? ' active' : '';
+            const done = row.complete ? 'text-success' : 'text-danger';
+            return '<div class="queue-item' + active + '" data-id="' + row.attempt_id + '">'
+                + '<div class="d-flex justify-content-between align-items-start gap-2">'
+                + '<div class="fw-semibold">' + esc(row.student_name || row.student_no || ('学生#' + row.student_id))
+                + (row.is_timeout ? ' <span class="badge badge-soft badge-soft-red">超时</span>' : '')
+                + '</div>'
+                + '<div class="q-pending ' + done + '">待批 ' + row.pending + '</div>'
+                + '</div>'
+                + '<div class="q-meta mt-1">'
+                + '客观 ' + row.objective_graded + '/' + row.objective_total
+                + ' · 主观 ' + row.subjective_reviewed + '/' + row.subjective_total
+                + ' · 已得 ' + num(row.score) + '/' + num(row.total_score) + ' 分'
+                + '</div>'
+                + '<div class="mini-prog mt-2"><span style="width:'
+                + (row.objective_total + row.subjective_total
+                    ? Math.round((row.objective_graded + row.subjective_reviewed) * 100
+                        / (row.objective_total + row.subjective_total)) : 0)
+                + '%"></span></div>'
+                + '</div>';
+        }).join('');
+
+        Array.prototype.forEach.call(host.querySelectorAll('.queue-item'), function (item) {
+            item.addEventListener('click', function () {
+                loadAttempt(Number(item.dataset.id));
+            });
+        });
+    }
+
+    /* ---------------- 单份作答 ---------------- */
+    async function loadAttempt(attemptId) {
+        currentAttemptId = attemptId;
+        const host = document.getElementById('attempt-panel');
+        host.innerHTML = '<div class="text-center text-muted py-5">加载中…</div>';
+        let report;
+        try {
+            report = await API.get('/grading/attempts/' + attemptId + '/report/');
+        } catch (err) {
+            host.innerHTML = '<div class="text-center text-danger py-5">' + esc(UI.errorText(err)) + '</div>';
+            return;
+        }
+        renderReport(report, host);
+        markActiveQueueItem();
+    }
+
+    function markActiveQueueItem() {
+        Array.prototype.forEach.call(document.querySelectorAll('.queue-item'), function (item) {
+            item.classList.toggle('active', Number(item.dataset.id) === currentAttemptId);
+        });
+    }
+
+    function renderReport(report, host) {
+        const grading = report.grading || { pending: 0, objective_total: 0, objective_graded: 0,
+            subjective_total: 0, subjective_reviewed: 0, complete: false };
+        const statusBadge = grading.graded ? 'badge-soft-purple' : 'badge-soft-amber';
+
+        const head = '<div class="card border-0 shadow-sm mb-3" style="border-radius:16px">'
+            + '<div class="card-body">'
+            + '<div class="d-flex flex-wrap justify-content-between align-items-center gap-3">'
+            + '<div>'
+            + '<h5 class="mb-0">' + esc(report.attempt.exam_title) + '</h5>'
+            + '<div class="text-muted small">'
+            + '第 ' + report.attempt.attempt_no + ' 次作答 · 交卷 ' + esc(report.attempt.submitted_at || '—')
+            + (report.attempt.is_timeout ? ' · <span class="text-danger">超时交卷</span>' : '')
+            + '</div>'
+            + '</div>'
+            + '<div class="text-end">'
+            + '<div style="font-size:26px;font-weight:700;line-height:1">'
+            + num(report.score) + '<span class="text-muted" style="font-size:14px">/ '
+            + num(report.total_score) + '</span></div>'
+            + '<span class="badge badge-soft ' + statusBadge + ' mt-1">'
+            + esc(report.attempt.status_display) + '</span>'
+            + '</div>'
+            + '</div>'
+            + '<div class="d-flex flex-wrap gap-3 small text-muted mt-3">'
+            + '客观题 <b>' + grading.objective_graded + '/' + grading.objective_total + '</b>'
+            + ' · 主观题 <b>' + grading.subjective_reviewed + '/' + grading.subjective_total + '</b>'
+            + ' · 待批 <b class="' + (grading.pending ? 'text-danger' : 'text-success') + '">'
+            + grading.pending + '</b> 道'
+            + '</div>'
+            + '<div class="d-flex flex-wrap gap-2 mt-3">'
+            + '<button class="btn btn-outline-primary btn-sm" id="btn-grade">'
+            + '<i class="bi bi-calculator me-1"></i> 判客观题</button>'
+            + '<button class="btn btn-outline-primary btn-sm" id="btn-ai">'
+            + '<i class="bi bi-magic me-1"></i> AI 批改主观题</button>'
+            + '<button class="btn btn-primary btn-sm" id="btn-finalize">'
+            + '<i class="bi bi-send-check me-1"></i> 出分并公开成绩</button>'
+            + '</div>'
+            + '</div></div>';
+
+        const cards = (report.items || []).map(function (item, index) {
+            return renderItem(item, index);
+        }).join('');
+
+        host.innerHTML = head + cards;
+
+        bindActions(host, report);
+    }
+
+    function renderItem(item, index) {
+        const isSubjective = item.question_type === 'short' || item.question_type === 'essay';
+        const done = item.reviewed || (!isSubjective && item.is_correct !== null);
+        const mine = item.selected_labels || item.answer_text || '';
+        const icons = { single: '单选', multiple: '多选', judge: '判断', fill: '填空',
+                        short: '简答', essay: '论述' };
+
+        let judgeIcon = '';
+        if (!isSubjective) {
+            judgeIcon = item.is_correct === true
+                ? '<span class="badge badge-soft badge-soft-teal">正确</span>'
+                : (item.is_correct === false
+                    ? '<span class="badge badge-soft badge-soft-red">错误</span>'
+                    : '<span class="badge badge-soft badge-soft-amber">未判</span>');
+        }
+
+        const aiBlock = item.ai_score === null || item.ai_score === undefined ? ''
+            : '<div class="mt-2"><div class="small text-muted mb-1">'
+                + '<i class="bi bi-robot me-1"></i>AI 建议分 <b>' + num(item.ai_score) + '</b> 分</div>'
+                + '<div class="ai-box">' + esc(item.ai_comment || '（无评语）') + '</div></div>';
+
+        const refBlock = '<details class="mt-2"><summary class="small text-muted" style="cursor:pointer">'
+            + '参考答案与解析</summary>'
+            + '<div class="ref-box mt-2">' + esc(item.reference_answer || '（无参考答案）')
+            + (item.analysis ? '\n\n解析：' + esc(item.analysis) : '') + '</div></details>';
+
+        return '<div class="grade-card' + (done ? ' done' : '') + '" data-answer="'
+            + (item.answer_id || '') + '" data-full="' + item.full_score + '">'
+            + '<div class="d-flex flex-wrap justify-content-between align-items-start gap-2">'
+            + '<div class="d-flex align-items-center gap-2">'
+            + '<span class="text-muted small">第 ' + (index + 1) + ' 题</span>'
+            + '<span class="type-chip">' + (icons[item.question_type] || item.type_display) + '</span>'
+            + judgeIcon
+            + '</div>'
+            + '<div class="small text-muted">满分 ' + num(item.full_score) + ' 分 · 现得分 <b>'
+            + num(item.score) + '</b></div>'
+            + '</div>'
+            + '<div class="q-stem mt-2">' + esc(item.stem) + '</div>'
+            + '<div class="mt-2"><div class="small text-muted mb-1">学生作答</div>'
+            + (mine
+                ? '<div class="answer-box">' + esc(mine) + '</div>'
+                : '<div class="answer-box empty">未作答</div>')
+            + '</div>'
+            + aiBlock
+            + refBlock
+            + '<div class="row g-2 align-items-end mt-3">'
+            + '<div class="col-6 col-md-3">'
+            + '<label class="form-label small mb-1">给分（0 ~ ' + num(item.full_score) + '）</label>'
+            + '<input type="number" class="form-control form-control-sm score-input js-score" step="0.5" min="0"'
+            + ' max="' + item.full_score + '" value="' + item.score + '"></div>'
+            + '<div class="col-6 col-md-5">'
+            + '<label class="form-label small mb-1">评语（可选）</label>'
+            + '<input type="text" class="form-control form-control-sm js-comment" placeholder="写给学生的评语"'
+            + ' value="' + esc(item.teacher_comment || '') + '"></div>'
+            + '<div class="col-12 col-md-4 d-flex flex-wrap gap-2">'
+            + '<button class="btn btn-primary btn-sm js-save"><i class="bi bi-check2 me-1"></i>保存评分</button>'
+            + (item.ai_score === null || item.ai_score === undefined ? ''
+                : '<button class="btn btn-outline-primary btn-sm js-accept">采纳 AI 建议</button>')
+            + '</div>'
+            + '</div>'
+            + (item.reviewed ? '<div class="small text-success mt-2">'
+                + '<i class="bi bi-clock-history me-1"></i>已人工复核</div>' : '')
+            + '</div>';
+    }
+
+    /* ---------------- 动作 ---------------- */
+    function bindActions(host, report) {
+        const attemptId = report.attempt.id;
+
+        const gradeBtn = host.querySelector('#btn-grade');
+        if (gradeBtn) {
+            gradeBtn.addEventListener('click', async function () {
+                UI.setBusy(gradeBtn, true, '判分中…');
+                try {
+                    const result = await API.post('/grading/attempts/' + attemptId + '/grade/', {});
+                    UI.success('客观题已判 ' + result.objective.graded + ' 道，当前 '
+                        + num(result.summary.score) + ' 分');
+                    await refresh();
+                } catch (err) {
+                    UI.error(UI.errorText(err));
+                } finally {
+                    UI.setBusy(gradeBtn, false);
+                }
+            });
+        }
+
+        const aiBtn = host.querySelector('#btn-ai');
+        if (aiBtn) {
+            aiBtn.addEventListener('click', async function () {
+                if (!window.confirm('将调用大模型批改本份作答的主观题，可能产生费用。继续？')) return;
+                UI.setBusy(aiBtn, true, 'AI 批改中…');
+                try {
+                    const result = await API.post('/grading/attempts/' + attemptId + '/grade/',
+                        { with_ai: true });
+                    const sub = result.subjective || {};
+                    let msg = 'AI 已批改 ' + (sub.graded || 0) + ' 道主观题';
+                    if (sub.failed) msg += '，' + sub.failed + ' 道需人工判分';
+                    if (sub.is_mock) msg += '（本地模拟，未调用真实大模型）';
+                    UI.success(msg);
+                    await refresh();
+                } catch (err) {
+                    UI.error(UI.errorText(err));
+                } finally {
+                    UI.setBusy(aiBtn, false);
+                }
+            });
+        }
+
+        const finalizeBtn = host.querySelector('#btn-finalize');
+        if (finalizeBtn) {
+            finalizeBtn.addEventListener('click', async function () {
+                if (!window.confirm('出分后学生即可看到成绩，确定？')) return;
+                UI.setBusy(finalizeBtn, true, '出分中…');
+                try {
+                    const data = await API.post('/grading/attempts/' + attemptId + '/finalize/', {});
+                    UI.success('已出分：' + num(data.score) + ' / ' + num(data.total_score)
+                        + (data.passed ? '（及格）' : '（未及格）'));
+                    await refresh();
+                } catch (err) {
+                    UI.error(UI.errorText(err));
+                } finally {
+                    UI.setBusy(finalizeBtn, false);
+                }
+            });
+        }
+
+        Array.prototype.forEach.call(host.querySelectorAll('.grade-card'), function (card) {
+            const answerId = card.dataset.answer;
+            if (!answerId || answerId === 'None') return;
+
+            const saveBtn = card.querySelector('.js-save');
+            if (saveBtn) {
+                saveBtn.addEventListener('click', async function () {
+                    const score = card.querySelector('.js-score').value;
+                    const comment = card.querySelector('.js-comment').value;
+                    if (score === '') { UI.error('请填写分数'); return; }
+                    UI.setBusy(saveBtn, true, '保存中…');
+                    try {
+                        await API.post('/grading/answers/' + answerId + '/review/',
+                            { score: score, comment: comment });
+                        UI.success('已保存');
+                        await refresh();
+                    } catch (err) {
+                        UI.error(UI.errorText(err));
+                    } finally {
+                        UI.setBusy(saveBtn, false);
+                    }
+                });
+            }
+
+            const acceptBtn = card.querySelector('.js-accept');
+            if (acceptBtn) {
+                acceptBtn.addEventListener('click', async function () {
+                    UI.setBusy(acceptBtn, true, '采纳中…');
+                    try {
+                        await API.post('/grading/answers/' + answerId + '/review/',
+                            { accept_ai: true });
+                        UI.success('已采纳 AI 建议分');
+                        await refresh();
+                    } catch (err) {
+                        UI.error(UI.errorText(err));
+                    } finally {
+                        UI.setBusy(acceptBtn, false);
+                    }
+                });
+            }
+        });
+    }
+
+    async function refresh() {
+        await loadQueue();
+        if (currentAttemptId) {
+            const keep = currentAttemptId;
+            await loadAttempt(keep);
+        }
+    }
+
+    /* ---------------- 绑定 ---------------- */
+    document.getElementById('exam-select').addEventListener('change', function (event) {
+        currentExamId = Number(event.target.value) || null;
+        currentAttemptId = null;
+        updateScoreboardLink();
+        document.getElementById('attempt-panel').innerHTML =
+            '<div class="text-center text-muted py-5">从左侧选一位考生开始批改</div>';
+        loadQueue();
+    });
+
+    document.getElementById('chk-all').addEventListener('change', loadQueue);
+
+    (async function init() {
+        await loadExams();
+        await loadQueue();
+    })();
+})();
+</script>
+{% endblock %}

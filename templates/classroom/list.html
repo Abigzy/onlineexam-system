@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}班级管理 · AI 在线考试与学情分析系统{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+        <div>
+            <h4 class="fw-bold mb-1">
+                {% if user.is_teacher %}班级管理{% else %}我的班级{% endif %}
+            </h4>
+            <p class="text-muted mb-0 small">
+                {% if user.is_teacher %}
+                    建班、学生分班，成绩单与学情按班级聚合
+                {% else %}
+                    查看你所在的班级与同学名单
+                {% endif %}
+            </p>
+        </div>
+        {% if user.is_teacher %}
+        <button class="btn btn-primary btn-sm" id="btn-create" data-bs-toggle="modal" data-bs-target="#classModal">
+            <i class="bi bi-plus-lg me-1"></i> 新建班级
+        </button>
+        {% endif %}
+    </div>
+
+    <div id="class-list" class="row g-3">
+        <div class="col-12 text-center text-muted py-5">加载中…</div>
+    </div>
+</div>
+
+{% if user.is_teacher %}
+<!-- 新建 / 编辑班级弹窗 -->
+<div class="modal fade" id="classModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title" id="classModalTitle">新建班级</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label small">班级名称 <span class="text-danger">*</span></label>
+                        <input class="form-control" id="f-name" placeholder="如：计算机 1 班 / 数据结构 1 班">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small d-block">班级类型</label>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="f-class-type"
+                                   id="ct-admin" value="admin" checked>
+                            <label class="form-check-label" for="ct-admin">行政班</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="f-class-type"
+                                   id="ct-subject" value="subject">
+                            <label class="form-check-label" for="ct-subject">学科班</label>
+                        </div>
+                        <div class="form-text">行政班是学籍班；学科班按课程划分，可挂靠行政班。</div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small">年级 / 届别</label>
+                        <input class="form-control" id="f-grade" placeholder="如：2026级">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small">授课学科</label>
+                        <input class="form-control" id="f-subject" placeholder="如：数据结构">
+                    </div>
+                    <div class="col-md-6 d-none" id="row-admin-class">
+                        <label class="form-label small">所属行政班</label>
+                        <select class="form-select" id="f-admin-class">
+                            <option value="">不指定</option>
+                        </select>
+                        <div class="form-text">学科班可直接挂靠一个已有的行政班。</div>
+                    </div>
+                    {% if user.is_teacher and not user.is_admin %}
+                    <div class="col-12 d-none" id="hint-auto-teacher">
+                        <div class="form-text text-primary mb-0">
+                            <i class="bi bi-info-circle me-1"></i>创建后你会自动成为该班授课教师。
+                        </div>
+                    </div>
+                    {% endif %}
+                    <div class="col-12">
+                        <label class="form-label small">班级简介</label>
+                        <textarea class="form-control" id="f-desc" rows="2" placeholder="可选"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary btn-sm" id="btn-save">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(function () {
+    'use strict';
+    const IS_MANAGER = {{ user.is_teacher|yesno:"true,false" }};
+    const host = document.getElementById('class-list');
+
+    function esc(t) {
+        return String(t === null || t === undefined ? '' : t)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    async function load() {
+        host.innerHTML = '<div class="col-12 text-center text-muted py-5">加载中…</div>';
+        let data;
+        try {
+            data = await API.get('/classrooms/');
+        } catch (err) {
+            host.innerHTML = '<div class="col-12 text-center text-danger py-5">'
+                + esc(UI.errorText(err)) + '</div>';
+            return;
+        }
+        const rows = data.results || [];
+        if (!rows.length) {
+            host.innerHTML = '<div class="col-12"><div class="text-center text-muted py-5">'
+                + (IS_MANAGER ? '还没有班级，点右上角「新建班级」开始。' : '你还没有加入任何班级。')
+                + '</div></div>';
+            return;
+        }
+        host.innerHTML = rows.map(card).join('');
+    }
+
+    function card(c) {
+        const head = c.head_teacher ? esc(c.head_teacher.display_name) : '—';
+        const subject = c.subject || '—';
+        const typeBadge = c.class_type === 'subject'
+            ? '<span class="badge badge-soft badge-soft-blue">学科班</span>'
+            : '<span class="badge badge-soft badge-soft-gray">行政班</span>';
+        const adminLine = c.admin_class
+            ? '<div class="text-muted small"><i class="bi bi-link-45deg me-1"></i>挂靠：'
+              + esc(c.admin_class.name) + '</div>'
+            : '';
+        const delBtn = (IS_MANAGER && c.can_manage)
+            ? '<button class="btn btn-sm btn-outline-danger class-del" data-id="' + c.id
+              + '" data-name="' + esc(c.name) + '" title="删除班级">'
+              + '<i class="bi bi-trash3"></i></button>'
+            : '';
+        return '<div class="col-md-6 col-xl-4"><div class="position-relative">'
+            + '<a href="/classrooms/' + c.id + '/" class="class-card text-decoration-none">'
+            + '<div class="d-flex align-items-center gap-2 mb-2">'
+            + '<span class="class-badge"><i class="bi bi-people-fill"></i></span>'
+            + '<span class="fw-semibold text-truncate">' + esc(c.name) + '</span>'
+            + typeBadge
+            + '</div>'
+            + '<div class="text-muted small mb-1"><i class="bi bi-bookmark me-1"></i>'
+            + esc(c.grade_year || '未设届别') + ' · ' + esc(subject) + '</div>'
+            + '<div class="text-muted small"><i class="bi bi-person-badge me-1"></i>班主任：' + head + '</div>'
+            + adminLine
+            + '<div class="d-flex gap-3 mt-3 pt-2 border-top small">'
+            + '<span><strong>' + (c.student_count || 0) + '</strong> 学生</span>'
+            + '<span><strong>' + (c.teacher_count || 0) + '</strong> 教师</span>'
+            + '</div>'
+            + '</a>' + delBtn + '</div></div>';
+    }
+
+    // ---- 行政班下拉（学科班可挂靠） ----
+    async function loadAdminClasses() {
+        const select = document.getElementById('f-admin-class');
+        if (!select) return;
+        try {
+            const data = await API.get('/classrooms/', { class_type: 'admin' });
+            (data.results || []).forEach(function (c) {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = c.name + (c.grade_year ? '（' + c.grade_year + '）' : '');
+                select.appendChild(opt);
+            });
+        } catch (err) { /* 拉不到行政班不影响建班 */ }
+    }
+
+    function syncAdminClassRow() {
+        const isSubject = document.getElementById('ct-subject').checked;
+        document.getElementById('row-admin-class').classList.toggle('d-none', !isSubject);
+        if (!isSubject) document.getElementById('f-admin-class').value = '';
+        const autoHint = document.getElementById('hint-auto-teacher');
+        if (autoHint) autoHint.classList.toggle('d-none', !isSubject);
+    }
+    document.querySelectorAll('input[name="f-class-type"]').forEach(function (radio) {
+        radio.addEventListener('change', syncAdminClassRow);
+    });
+
+    // ---- 删除班级（事件委托，卡片是动态渲染的） ----
+    host.addEventListener('click', function (event) {
+        const btn = event.target.closest('.class-del');
+        if (!btn) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const name = btn.getAttribute('data-name');
+        if (!window.confirm('确认删除班级「' + name + '」？\n班级及成员关系将被删除，且不可恢复。')) return;
+        API.del('/classrooms/' + btn.getAttribute('data-id') + '/')
+            .then(function () { UI.success('班级已删除'); load(); })
+            .catch(function (err) { UI.error(UI.errorText(err)); });
+    });
+
+    // ---- 新建班级 ----
+    const btnSave = document.getElementById('btn-save');
+    if (btnSave) {
+        btnSave.addEventListener('click', async function () {
+            const name = document.getElementById('f-name').value.trim();
+            if (!name) { UI.error('请填写班级名称'); return; }
+            UI.setBusy(btnSave, true, '保存中…');
+            try {
+                await API.post('/classrooms/', {
+                    name: name,
+                    grade_year: document.getElementById('f-grade').value.trim(),
+                    subject: document.getElementById('f-subject').value.trim(),
+                    description: document.getElementById('f-desc').value.trim(),
+                    class_type: document.getElementById('ct-subject').checked ? 'subject' : 'admin',
+                    admin_class_id: document.getElementById('f-admin-class').value || null,
+                });
+                UI.success('班级已创建');
+                bootstrap.Modal.getInstance(document.getElementById('classModal')).hide();
+                document.getElementById('f-name').value = '';
+                document.getElementById('f-grade').value = '';
+                document.getElementById('f-subject').value = '';
+                document.getElementById('f-desc').value = '';
+                document.getElementById('ct-admin').checked = true;
+                syncAdminClassRow();
+                load();
+            } catch (err) {
+                UI.error(UI.errorText(err));
+            } finally {
+                UI.setBusy(btnSave, false);
+            }
+        });
+    }
+
+    loadAdminClasses();
+    load();
+})();
+</script>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.class-card {
+    display: block; padding: 18px 20px; border-radius: 14px;
+    border: 1px solid var(--line-200, #e8edf4); background: #fff; color: inherit;
+    transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+.class-card:hover { transform: translateY(-2px); border-color: var(--brand-500, #4f46e5); box-shadow: 0 8px 24px rgba(15,23,42,.08); }
+.class-badge {
+    width: 40px; height: 40px; border-radius: 10px; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #eef2ff; color: #4f46e5; font-size: 18px;
+}
+.class-del { position: absolute; top: 10px; right: 10px; z-index: 2; }
+</style>
+{% endblock %}

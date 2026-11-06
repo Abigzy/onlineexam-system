@@ -1,0 +1,123 @@
+%% 管理端增量 · 类图
+%% 对应文档：docs/管理端增量设计.md 附录 A
+classDiagram
+    class RoleRequiredMixin {
+        +tuple required_roles
+        +dispatch(request) HttpResponse
+        +handle_no_role() None
+        -_has_role(user) bool
+    }
+    class TeacherRequiredMixin
+    class StudentRequiredMixin
+    class AdminRequiredMixin
+    class AdminConsoleMixin {
+        +handle_no_role() HttpResponse
+    }
+    class TeacherPageMixin {
+        +get_context_data() dict
+    }
+    class ClassroomAccessMixin {
+        +tuple required_roles
+        +get_context_data() dict
+    }
+    class InactiveSessionGuardMiddleware {
+        +tuple SKIP_PREFIXES
+        +__call__(request) HttpResponse
+    }
+    class ManageDashboardPageView {
+        +str template_name
+        +str active_menu
+        +get_context_data() dict
+    }
+    class ManageOrgPageView {
+        +get_context_data() dict
+    }
+    class ManageSystemPageView {
+        +get_context_data() dict
+    }
+    class ManageUserListPageView {
+        +get_queryset() QuerySet
+        +get_context_data() dict
+    }
+    class ManageUserCreatePageView {
+        +AdminUserCreateForm form_class
+        +get(request) HttpResponse
+        +post(request) HttpResponse
+    }
+    class ManageUserEditPageView {
+        +AdminUserEditForm form_class
+        +post(request) HttpResponse
+    }
+    class SystemOverviewView {
+        +list permission_classes
+        +get(request) ApiResponse
+    }
+    class OverviewService {
+        +build() dict
+        -_users(since) dict
+        -_org() dict
+        -_content() dict
+        -_teaching(since) dict
+        -_ai(since) dict
+        -_subjects() list
+    }
+    class UserService {
+        +register(username,password,email,role) User
+        +change_password(user,old,new) None
+        +admin_reset_password(user,new_password) str
+        +assert_admin_survives(target,role,is_active) None
+        +generate_password(length) str
+        +record_login(user,ip) None
+        -_blacklist_refresh_tokens(user) None
+    }
+    class AdminUserCreateForm {
+        +username CharField
+        +email EmailField
+        +role ChoiceField
+        +subject CharField
+        +password CharField
+        +clean_username() str
+        +clean_password() str
+    }
+    class AdminUserEditForm {
+        +subject CharField
+        +clean() dict
+    }
+    class UserFilter {
+        +role ChoiceFilter
+        +is_active BooleanFilter
+        +subject CharFilter
+        +keyword CharFilter
+    }
+    class AdminUserSerializer {
+        +subject CharField
+        +validate_role(value) str
+        +validate(attrs) dict
+    }
+    class UserRegisterSerializer {
+        +role ChoiceField
+        +validate_password(value) str
+    }
+
+    RoleRequiredMixin <|-- TeacherRequiredMixin
+    RoleRequiredMixin <|-- StudentRequiredMixin
+    RoleRequiredMixin <|-- AdminRequiredMixin
+    AdminRequiredMixin <|-- AdminConsoleMixin
+    TeacherRequiredMixin <|-- TeacherPageMixin
+    RoleRequiredMixin <|-- ClassroomAccessMixin
+
+    AdminConsoleMixin <.. ManageDashboardPageView
+    AdminConsoleMixin <.. ManageOrgPageView
+    AdminConsoleMixin <.. ManageSystemPageView
+    AdminConsoleMixin <.. ManageUserListPageView
+    AdminConsoleMixin <.. ManageUserCreatePageView
+    AdminConsoleMixin <.. ManageUserEditPageView
+
+    ManageDashboardPageView ..> OverviewService : 页面内联渲染
+    SystemOverviewView ..> OverviewService : build()
+    ManageUserListPageView ..> UserFilter : 过滤
+    ManageUserCreatePageView ..> AdminUserCreateForm
+    ManageUserEditPageView ..> AdminUserEditForm
+    AdminUserCreateForm ..> UserService : create/validate
+    AdminUserEditForm ..> UserService : assert_admin_survives
+    AdminUserSerializer ..> UserService : assert_admin_survives

@@ -1,0 +1,393 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .kpi-card { border-radius: 16px; border: 1px solid var(--line-200, #e8edf4); background: #fff;
+                padding: 14px 16px; height: 100%; }
+    .kpi-card .kpi-label { font-size: 12px; color: #6b7686; }
+    .kpi-card .kpi-value { font-size: 26px; font-weight: 700; line-height: 1.2; }
+    .kpi-card .kpi-foot { font-size: 12px; color: #94a3b8; }
+
+    .chart-card { border-radius: 16px; border: 1px solid var(--line-200, #e8edf4); background: #fff;
+                  height: 100%; }
+    .chart-card .chart-head { padding: 12px 16px 0; }
+    .chart-card .chart-head h6 { margin: 0; font-size: 14px; font-weight: 600; }
+    .chart-box { width: 100%; height: 240px; padding: 6px 8px 10px; }
+
+    .panel-card { border-radius: 16px; border: 1px solid var(--line-200, #e8edf4); background: #fff;
+                  height: 100%; }
+    .panel-card .panel-head { padding: 12px 16px; border-bottom: 1px dashed #eef2f7;
+                              display: flex; justify-content: space-between; align-items: center; }
+    .panel-card .panel-head h6 { margin: 0; font-size: 14px; font-weight: 600; }
+
+    .mini-table { font-size: 13px; }
+    .mini-table thead th { font-size: 12px; color: #6b7686; font-weight: 600;
+                           border-bottom: 1px solid var(--line-200, #e8edf4); white-space: nowrap; }
+    .mini-table td { vertical-align: middle; }
+
+    .risk-badge { font-size: 12px; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+    .risk-normal { background: #f1f5f9; color: #475569; }
+    .risk-low { background: #e0f2fe; color: #075985; }
+    .risk-medium { background: #fef3c7; color: #92400e; }
+    .risk-high { background: #ffedd5; color: #9a3412; }
+    .risk-severe { background: #fee2e2; color: #991b1b; font-weight: 600; }
+
+    .signal-chip { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 6px;
+                   background: #fef2f2; color: #b91c1c; border: 1px solid #fee2e2;
+                   margin: 0 4px 4px 0; }
+    .outlier-chip { font-size: 11px; padding: 1px 7px; border-radius: 6px;
+                    background: #f5f3ff; color: #6d28d9; border: 1px solid #ede9fe; }
+
+    .score-bar { height: 6px; border-radius: 999px; background: #eef2f7; overflow: hidden;
+                 min-width: 60px; }
+    .score-bar > span { display: block; height: 100%; }
+    .score-bar > span.s0 { background: #94a3b8; }
+    .score-bar > span.s1 { background: #38bdf8; }
+    .score-bar > span.s2 { background: #f59e0b; }
+    .score-bar > span.s3 { background: #f97316; }
+    .score-bar > span.s4 { background: #ef4444; }
+
+    .rule-row td { font-size: 12px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">作弊行为检测</h4>
+            <div class="text-muted small">规则引擎（可解释） + 孤立森林（无监督离群）双管齐下的可疑考生筛查</div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <select class="form-select form-select-sm" id="exam-select" style="min-width:260px">
+                <option value="">选择考试…</option>
+            </select>
+            <div class="form-check form-check-inline mb-0">
+                <input class="form-check-input" type="checkbox" id="only-suspicious">
+                <label class="form-check-label small" for="only-suspicious">只看可疑</label>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" id="btn-refresh">
+                <i class="bi bi-arrow-clockwise me-1"></i> 刷新
+            </button>
+            <a href="{% url 'exam-list' %}" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-ui-checks me-1"></i> 考试管理
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="container pb-5">
+    <div id="alert-host"></div>
+
+    <div id="kpi-row" class="row g-3 mb-3"></div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-lg-5">
+            <div class="chart-card">
+                <div class="chart-head">
+                    <h6>风险分档分布</h6>
+                    <div class="text-muted" style="font-size:12px">按规则引擎总分归档</div>
+                </div>
+                <div class="chart-box" id="level-chart"></div>
+            </div>
+        </div>
+        <div class="col-lg-7">
+            <div class="panel-card">
+                <div class="panel-head">
+                    <h6>异常检测（孤立森林）</h6>
+                    <span class="text-muted" style="font-size:12px" id="anomaly-method">—</span>
+                </div>
+                <div class="panel-body p-3" id="anomaly-host">
+                    <div class="text-muted small">选择一场考试后展示</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel-card mb-3">
+        <div class="panel-head">
+            <h6>可疑考生列表</h6>
+            <span class="text-muted" style="font-size:12px" id="list-meta">—</span>
+        </div>
+        <div class="table-responsive" id="list-host">
+            <div class="text-center text-muted py-5">加载中…</div>
+        </div>
+    </div>
+
+    <div class="panel-card">
+        <div class="panel-head">
+            <h6>判定规则与阈值（可解释的依据）</h6>
+            <span class="text-muted" style="font-size:12px">改口径请调 <code>apps/proctoring/constants.py</code></span>
+        </div>
+        <div class="table-responsive" id="rules-host">
+            <div class="text-center text-muted py-5">加载中…</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script>
+(function () {
+    'use strict';
+
+    const INITIAL_EXAM_ID = {{ exam_id|default_if_none:"null" }};
+    const charts = {};
+    let state = { examId: INITIAL_EXAM_ID, report: null };
+
+    function $(id) { return document.getElementById(id); }
+    function esc(text) {
+        return String(text === null || text === undefined ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+    function num(value, digits) {
+        if (value === null || value === undefined) return '—';
+        const v = Number(value);
+        if (!isFinite(v)) return '—';
+        return digits === undefined ? (Number.isInteger(v) ? String(v) : v.toFixed(1)) : v.toFixed(digits);
+    }
+
+    const RISK_BADGE = {
+        normal: 'risk-normal', low: 'risk-low', medium: 'risk-medium',
+        high: 'risk-high', severe: 'risk-severe',
+    };
+    const RISK_BAR = { normal: 's0', low: 's1', medium: 's2', high: 's3', severe: 's4' };
+
+    function alertBox(message, type) {
+        $('alert-host').innerHTML = '<div class="alert alert-' + (type || 'info')
+            + ' py-2 small mb-3">' + esc(message) + '</div>';
+    }
+
+    function ensureChart(key, elementId) {
+        if (!window.echarts) return null;
+        if (!charts[key]) {
+            const element = $(elementId);
+            element.innerHTML = '';
+            charts[key] = echarts.init(element);
+        }
+        return charts[key];
+    }
+
+    /* ---------------- 考试选择器 ---------------- */
+    async function loadExams() {
+        let data;
+        try {
+            data = await API.get('/proctoring/exams/');
+        } catch (err) {
+            alertBox('加载考试列表失败：' + UI.errorText(err), 'warning');
+            return;
+        }
+        const rows = (data && data.results) || [];
+        const select = $('exam-select');
+        if (!rows.length) {
+            select.innerHTML = '<option value="">暂无带行为数据的考试</option>';
+            $('list-host').innerHTML = '<div class="text-center text-muted py-5">'
+                + '还没有任何行为埋点。先让学生作答并上报行为（切屏 / 粘贴），再回到这里。</div>';
+            return;
+        }
+        select.innerHTML = rows.map(function (row) {
+            return '<option value="' + row.id + '">' + esc(row.title)
+                + '（' + row.attempt_count + ' 人 / ' + row.log_count + ' 条埋点）</option>';
+        }).join('');
+
+        if (!state.examId) state.examId = rows[0].id;
+        const exists = rows.some(function (row) { return String(row.id) === String(state.examId); });
+        if (!exists) state.examId = rows[0].id;
+        select.value = String(state.examId);
+        await loadReport();
+    }
+
+    /* ---------------- 报告 ---------------- */
+    async function loadReport() {
+        if (!state.examId) return;
+        $('list-host').innerHTML = '<div class="text-center text-muted py-5">加载中…</div>';
+        let data;
+        try {
+            data = await API.get('/proctoring/exams/' + state.examId + '/report/', {
+                only_suspicious: $('only-suspicious').checked,
+            });
+        } catch (err) {
+            $('list-host').innerHTML = '<div class="text-center text-danger py-5">'
+                + esc(UI.errorText(err)) + '</div>';
+            return;
+        }
+        state.report = data;
+        $('alert-host').innerHTML = '';
+        renderKpis(data);
+        renderLevelChart(data);
+        renderAnomaly(data);
+        renderRows(data);
+    }
+
+    function renderKpis(data) {
+        const overview = data.overview || {};
+        const exam = data.exam || {};
+        const cards = [
+            { label: '作答记录', value: num(overview.attempt_count), foot: '本场考试全部作答' },
+            { label: '有行为数据', value: num(overview.with_behavior_count), foot: '采集到埋点的作答' },
+            { label: '可疑人数', value: num(overview.suspicious_count), foot: '达到「中度可疑」及以上' },
+            { label: '模型离群', value: num(overview.outlier_count), foot: '孤立森林判出的离群点' },
+            { label: '行为事件', value: num(overview.event_total), foot: '切屏/粘贴/全屏等总条数' },
+            { label: '允许切屏', value: num(exam.max_switch_count), foot: '本场考试阈值' },
+        ];
+        $('kpi-row').innerHTML = cards.map(function (card) {
+            return '<div class="col-6 col-md-4 col-lg-2"><div class="kpi-card">'
+                + '<div class="kpi-label">' + esc(card.label) + '</div>'
+                + '<div class="kpi-value">' + esc(card.value) + '</div>'
+                + '<div class="kpi-foot">' + esc(card.foot) + '</div>'
+                + '</div></div>';
+        }).join('');
+    }
+
+    function renderLevelChart(data) {
+        const chart = ensureChart('level', 'level-chart');
+        if (!chart) return;
+        const dist = (data.overview || {}).level_distribution || {};
+        const levels = [
+            { key: 'severe', name: '严重违规', color: '#ef4444' },
+            { key: 'high', name: '高度可疑', color: '#f97316' },
+            { key: 'medium', name: '中度可疑', color: '#f59e0b' },
+            { key: 'low', name: '低度可疑', color: '#38bdf8' },
+            { key: 'normal', name: '正常', color: '#94a3b8' },
+        ];
+        chart.setOption({
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+            grid: { left: 70, right: 20, top: 16, bottom: 20 },
+            xAxis: { type: 'value', minInterval: 1 },
+            yAxis: { type: 'category', data: levels.map(function (item) { return item.name; }) },
+            series: [{
+                type: 'bar',
+                data: levels.map(function (item) {
+                    return { value: dist[item.key] || 0, itemStyle: { color: item.color } };
+                }),
+                barWidth: 16,
+                label: { show: true, position: 'right' },
+            }],
+        });
+    }
+
+    function renderAnomaly(data) {
+        const anomaly = data.anomaly || {};
+        $('anomaly-method').textContent = anomaly.method_display || '—';
+        let html = '';
+        if (!anomaly.available) {
+            html += '<div class="alert alert-warning py-2 small mb-0">'
+                + esc(anomaly.reason || '异常检测不可用') + '</div>';
+        } else {
+            html += '<div class="d-flex flex-wrap gap-3 mb-2 small">'
+                + '<span>方法：<strong>' + esc(anomaly.method_display) + '</strong></span>'
+                + '<span>训练样本：<strong>' + num(anomaly.sample_size) + '</strong> 份</span>'
+                + '<span>判出离群：<strong>' + num(anomaly.outlier_count) + '</strong> 份</span>'
+                + '</div>';
+            const outliers = (anomaly.results || []).filter(function (row) { return row.is_outlier; });
+            if (outliers.length) {
+                html += '<div class="small text-muted mb-1">离群作答（异常分越高越不像常规作答）：</div><div>';
+                html += outliers.slice(0, 12).map(function (row) {
+                    return '<span class="outlier-chip me-1">#' + row.attempt_id
+                        + ' 异常分 ' + num(row.anomaly_score, 3)
+                        + (row.top_feature ? '｜' + esc(row.top_feature) : '') + '</span>';
+                }).join('');
+                html += '</div>';
+            } else {
+                html += '<div class="text-muted small">本次没有判出离群作答。</div>';
+            }
+            html += '<div class="text-muted mt-2" style="font-size:12px">'
+                + '离群只说明「与同场其他人明显不同」，不等于作弊；需结合证据链人工判断。</div>';
+        }
+        $('anomaly-host').innerHTML = html;
+    }
+
+    function renderRows(data) {
+        const rows = data.rows || [];
+        $('list-meta').textContent = '共 ' + rows.length + ' 条'
+            + (data.flagged_count ? '（可疑 ' + data.flagged_count + ' 人）' : '');
+        if (!rows.length) {
+            $('list-host').innerHTML = '<div class="text-center text-muted py-5">'
+                + '没有符合条件的记录。</div>';
+            return;
+        }
+        let html = '<table class="table table-hover mini-table mb-0"><thead><tr>'
+            + '<th>#</th><th>学生</th><th>风险</th><th>命中规则</th>'
+            + '<th class="text-end">切屏</th><th class="text-end">粘贴</th>'
+            + '<th class="text-end">退全屏</th><th class="text-end">最长离开</th>'
+            + '<th class="text-end">异常分</th><th></th></tr></thead><tbody>';
+        rows.forEach(function (row, index) {
+            const badge = RISK_BADGE[row.risk_level] || 'risk-normal';
+            const bar = RISK_BAR[row.risk_level] || 's0';
+            const chips = (row.signal_names || []).slice(0, 4).map(function (name) {
+                return '<span class="signal-chip">' + esc(name) + '</span>';
+            }).join('') || '<span class="text-muted small">—</span>';
+            const outlier = row.is_outlier ? ' <span class="outlier-chip">离群</span>' : '';
+            html += '<tr>'
+                + '<td>' + (index + 1) + '</td>'
+                + '<td><div>' + esc(row.student_name) + outlier + '</div>'
+                + '<div class="text-muted" style="font-size:12px">' + esc(row.student_no || '') + '</div></td>'
+                + '<td><span class="risk-badge ' + badge + '">' + esc(row.risk_level_display)
+                + ' ' + num(row.risk_score) + '</span>'
+                + '<div class="score-bar mt-1"><span class="' + bar + '" style="width:'
+                + Math.min(100, row.risk_score) + '%"></span></div></td>'
+                + '<td style="max-width:280px">' + chips + '</td>'
+                + '<td class="text-end">' + num(row.switch_count) + '</td>'
+                + '<td class="text-end">' + num(row.paste_count) + '</td>'
+                + '<td class="text-end">' + num(row.fullscreen_exit_count) + '</td>'
+                + '<td class="text-end">' + (row.max_absence_seconds
+                    ? num(row.max_absence_seconds) + 's' : '—') + '</td>'
+                + '<td class="text-end">' + num(row.anomaly_score, 3) + '</td>'
+                + '<td><a class="btn btn-outline-danger btn-sm py-0" href="/proctoring/attempts/'
+                + row.attempt_id + '/evidence/">证据链</a></td>'
+                + '</tr>';
+        });
+        html += '</tbody></table>';
+        $('list-host').innerHTML = html;
+    }
+
+    /* ---------------- 规则说明 ---------------- */
+    async function loadRules() {
+        let data;
+        try {
+            data = await API.get('/proctoring/rules/');
+        } catch (err) {
+            $('rules-host').innerHTML = '<div class="text-center text-danger py-4">'
+                + esc(UI.errorText(err)) + '</div>';
+            return;
+        }
+        const rules = data.rules || [];
+        let html = '<table class="table mini-table mb-0"><thead><tr>'
+            + '<th>规则</th><th>触发条件</th><th class="text-end">基础分</th>'
+            + '<th>等级</th><th>建议</th></tr></thead><tbody>';
+        rules.forEach(function (rule) {
+            const badge = RISK_BADGE[rule.level] || 'risk-normal';
+            html += '<tr class="rule-row">'
+                + '<td><strong>' + esc(rule.name) + '</strong><div class="text-muted">'
+                + esc(rule.metric) + '</div></td>'
+                + '<td>' + esc(rule.threshold_desc) + '</td>'
+                + '<td class="text-end">' + num(rule.points) + '</td>'
+                + '<td><span class="risk-badge ' + badge + '">' + esc(rule.level_display) + '</span></td>'
+                + '<td class="text-muted">' + esc(rule.advice) + '</td>'
+                + '</tr>';
+        });
+        html += '</tbody></table>';
+        $('rules-host').innerHTML = html;
+    }
+
+    /* ---------------- 事件绑定 ---------------- */
+    $('exam-select').addEventListener('change', function () {
+        state.examId = this.value || null;
+        loadReport();
+    });
+    $('only-suspicious').addEventListener('change', loadReport);
+    $('btn-refresh').addEventListener('click', loadReport);
+    window.addEventListener('resize', function () {
+        Object.keys(charts).forEach(function (key) { charts[key].resize(); });
+    });
+
+    loadRules();
+    loadExams();
+})();
+</script>
+{% endblock %}

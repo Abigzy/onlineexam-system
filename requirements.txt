@@ -1,0 +1,35 @@
+# ============================================================
+# 基于 Django 的 AI 在线考试与学情分析系统 —— 依赖清单
+# 安装： pip install -r requirements.txt
+# ============================================================
+
+# ---------- 核心框架 ----------
+Django>=4.2,<5.0                 # LTS 版本，生态兼容性最好
+
+# ---------- RESTful API ----------
+djangorestframework>=3.15,<3.17  # DRF：序列化器 / ViewSet / 权限 / 分页
+djangorestframework-simplejwt>=5.3,<6.0   # JWT 无状态认证
+django-cors-headers>=4.3,<5.0    # 前后端分离场景的跨域支持
+django-filter>=24.2,<26.0        # 列表接口的字段过滤
+drf-spectacular>=0.27,<0.29      # 自动生成 OpenAPI 3 / Swagger 文档
+
+# ---------- 配置与存储 ----------
+python-dotenv>=1.0,<2.0          # 从 .env 读取配置
+PyMySQL>=1.1,<2.0                # 纯 Python MySQL 驱动（免编译，Windows 友好）
+Pillow>=10.3                     # ImageField（用户头像）依赖
+
+# ---------- 第三方服务调用 ----------
+requests>=2.32                   # 调用 DeepSeek / 豆包 / 元宝 等大模型 HTTP 接口
+
+# ---------- 数据导入导出 ----------
+openpyxl>=3.1                    # 题库 Excel（.xlsx）批量导入 / 导出
+
+# ---------- 异常检测（模块八） ----------
+scikit-learn>=1.5                # 孤立森林：作弊行为的无监督离群发现
+# 说明：未安装 scikit-learn 时，模块八会自动降级为纯 Python 的稳健 z-score，
+#       功能不中断（AnomalyDetectionService 内部做可选导入）。
+
+# ---------- 性能测试（模块十一）----------
+# 仅性能测试需要，可选依赖：运行 scripts/locustfile.py 的压测才装，
+# 部署与单元测试都不依赖它，不装不影响系统启动。
+locust>=2.47,<3.0                # 并发压测：scripts/locustfile.py

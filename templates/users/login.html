@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}登录 · AI 在线考试与学情分析系统{% endblock %}
+
+{% block content %}
+<div class="container auth-wrap py-5">
+    <div class="row justify-content-center w-100">
+        <div class="col-lg-10 col-xl-9">
+            <div class="auth-panel">
+                <div class="row g-0">
+
+                    <!-- 左侧：品牌介绍 -->
+                    <div class="col-lg-5 auth-aside">
+                        <h3 class="mb-3">严谨命题<br>因材施教</h3>
+                        <p class="small mb-4" style="opacity:.85">
+                            在线考试与学情分析系统
+                        </p>
+
+                        <div class="feature"><i class="bi bi-magic"></i><span>按知识点与难度组卷，覆盖可审计</span></div>
+                        <div class="feature"><i class="bi bi-robot"></i><span>主观题语义评分，教师复核留痕</span></div>
+                        <div class="feature"><i class="bi bi-graph-up-arrow"></i><span>掌握度雷达与成绩趋势预测</span></div>
+                        <div class="feature"><i class="bi bi-shield-check"></i><span>切屏与异常行为检测，保障公平</span></div>
+                    </div>
+
+                    <!-- 右侧：登录表单 -->
+                    <div class="col-lg-7">
+                        <div class="auth-form">
+                            <h4 class="fw-bold mb-1">欢迎回来</h4>
+                            <p class="text-muted small mb-4">使用用户名 / 邮箱 / 学号均可登录</p>
+
+                            {% if form.non_field_errors %}
+                                <div class="alert alert-danger py-2 small">
+                                    {% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
+                                </div>
+                            {% endif %}
+
+                            <form method="post" novalidate>
+                                {% csrf_token %}
+                                <input type="hidden" name="next" value="{{ next }}">
+
+                                <div class="mb-3">
+                                    <label class="form-label" for="{{ form.username.id_for_label }}">{{ form.username.label }}</label>
+                                    {{ form.username }}
+                                    {% for error in form.username.errors %}
+                                        <div class="text-danger small mt-1">{{ error }}</div>
+                                    {% endfor %}
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label" for="{{ form.password.id_for_label }}">{{ form.password.label }}</label>
+                                    <div class="input-group">
+                                        {{ form.password }}
+                                        <button class="btn btn-outline-secondary" type="button"
+                                                id="toggle-password" aria-pressed="false"
+                                                aria-label="显示或隐藏密码" title="显示 / 隐藏密码">
+                                            <i class="bi bi-eye" id="toggle-password-icon"></i>
+                                        </button>
+                                    </div>
+                                    {% for error in form.password.errors %}
+                                        <div class="text-danger small mt-1">{{ error }}</div>
+                                    {% endfor %}
+                                </div>
+
+                                <div class="form-check mb-4">
+                                    {{ form.remember_me }}
+                                    <label class="form-check-label small" for="{{ form.remember_me.id_for_label }}">
+                                        {{ form.remember_me.label }}
+                                    </label>
+                                </div>
+
+                                <button type="submit" class="btn btn-brand w-100">
+                                    <i class="bi bi-box-arrow-in-right me-1"></i> 登录
+                                </button>
+                            </form>
+
+                            <p class="text-center text-muted small mt-4 mb-0">
+                                还没有账号？<a href="{% url 'register-page' %}" class="fw-semibold text-decoration-none">立即注册</a>
+                            </p>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/* 密码可见性切换：眼睛图标点一下在「明文 / 密文」之间切换 */
+(function () {
+    'use strict';
+    var input = document.getElementById('id_password');
+    var btn = document.getElementById('toggle-password');
+    var icon = document.getElementById('toggle-password-icon');
+    if (!input || !btn || !icon) return;
+
+    btn.addEventListener('click', function () {
+        var show = input.type === 'password';
+        input.type = show ? 'text' : 'password';
+        icon.className = 'bi ' + (show ? 'bi-eye-slash' : 'bi-eye');
+        btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+        btn.setAttribute('title', show ? '隐藏密码' : '显示密码');
+        input.focus();
+        // 保持光标在末尾，避免切换后跳到开头
+        var len = input.value.length;
+        if (input.setSelectionRange && show) {
+            try { input.setSelectionRange(len, len); } catch (e) { /* 某些浏览器不支持 */ }
+        }
+    });
+})();
+</script>
+{% endblock %}

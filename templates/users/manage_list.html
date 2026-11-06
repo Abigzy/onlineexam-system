@@ -1,0 +1,334 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}用户管理 · 管理控制台{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">用户管理</h4>
+            <div class="text-muted small">账号治理：新建 / 编辑资料 / 重置密码 / 停用启用（不提供物理删除）</div>
+        </div>
+        <a href="{% url 'manage-user-create' %}" class="btn btn-brand btn-sm">
+            <i class="bi bi-person-plus me-1"></i> 新建用户
+        </a>
+    </div>
+</div>
+
+<div class="container py-4">
+
+    <!-- ============ 筛选条 ============ -->
+    <form method="get" class="filter-bar mb-3" id="filter-form">
+        <div class="row g-2 align-items-end">
+            <div class="col-12 col-md-4">
+                <label class="form-label small mb-1">关键词</label>
+                <input type="search" name="search" value="{{ request.GET.search|default:'' }}"
+                       class="form-control form-control-sm"
+                       placeholder="用户名 / 姓名 / 邮箱 / 学号 / 手机号">
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-1">角色</label>
+                <select name="role" class="form-select form-select-sm">
+                    <option value="">全部</option>
+                    {% for value, label in role_choices %}
+                        <option value="{{ value }}" {% if request.GET.role == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-1">状态</label>
+                <select name="is_active" class="form-select form-select-sm">
+                    <option value="">全部</option>
+                    <option value="true" {% if request.GET.is_active == 'true' %}selected{% endif %}>启用</option>
+                    <option value="false" {% if request.GET.is_active == 'false' %}selected{% endif %}>已停用</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-1">学科</label>
+                <select name="subject" class="form-select form-select-sm">
+                    <option value="">全部</option>
+                    {% for subject in subjects %}
+                        <option value="{{ subject }}" {% if request.GET.subject == subject %}selected{% endif %}>{{ subject }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-1">班级</label>
+                <select name="classroom" class="form-select form-select-sm">
+                    <option value="">全部</option>
+                    {% if has_admin_classrooms %}
+                    <optgroup label="行政班">
+                        {% for c in classroom_options %}{% if c.class_type == 'admin' %}
+                        <option value="{{ c.id }}"
+                                {% if request.GET.classroom == c.id|stringformat:"s" %}selected{% endif %}>{{ c.name }}（{{ c.student_count }} 人）</option>
+                        {% endif %}{% endfor %}
+                    </optgroup>
+                    {% endif %}
+                    {% if has_subject_classrooms %}
+                    <optgroup label="学科班">
+                        {% for c in classroom_options %}{% if c.class_type == 'subject' %}
+                        <option value="{{ c.id }}"
+                                {% if request.GET.classroom == c.id|stringformat:"s" %}selected{% endif %}>{{ c.name }}{% if c.subject %} · {{ c.subject }}{% endif %}（{{ c.student_count }} 人）</option>
+                        {% endif %}{% endfor %}
+                    </optgroup>
+                    {% endif %}
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-1">每页</label>
+                <select name="page_size" class="form-select form-select-sm">
+                    {% for size in page_size_choices %}
+                        <option value="{{ size }}" {% if size == page_size %}selected{% endif %}>{{ size }} 条</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 col-md-10 d-flex gap-2 align-items-end mt-2 mt-md-0">
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="bi bi-funnel me-1"></i> 筛选
+                </button>
+                <a href="{% url 'manage-user-list' %}" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i> 清空筛选
+                </a>
+            </div>
+        </div>
+    </form>
+
+    <!-- ============ 列表 ============ -->
+    <div class="table-card">
+        {% if page_obj.object_list %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>用户名</th>
+                        <th>姓名</th>
+                        <th>角色</th>
+                        <th class="d-none d-md-table-cell">学号 / 工号</th>
+                        <th>学科</th>
+                        <th class="d-none d-lg-table-cell">邮箱</th>
+                        <th>状态</th>
+                        <th class="d-none d-md-table-cell">最后登录</th>
+                        <th class="d-none d-xl-table-cell">注册时间</th>
+                        <th class="text-end">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in page_obj.object_list %}
+                    <tr {% if not row.is_active %}class="text-muted" style="background:#fafafa"{% endif %}>
+                        <td class="font-monospace small">{{ row.username }}</td>
+                        <td>{{ row.real_name|default:"—" }}</td>
+                        <td><span class="badge role-badge role-{{ row.role }}">{{ row.get_role_display }}</span></td>
+                        <td class="d-none d-md-table-cell small">{{ row.student_no|default:"—" }}</td>
+                        <td class="small">
+                            {% if row.role == 'teacher' %}
+                                {% if row.subject %}
+                                    {{ row.subject }}
+                                {% else %}
+                                    <span class="badge badge-soft badge-soft-amber">未绑定</span>
+                                {% endif %}
+                            {% elif row.role == 'student' %}
+                                {# 学生的学科来自其所在的学科班（视图已批量算好，不在此处查库） #}
+                                {% if row.subject_list %}
+                                    <span class="d-inline-block text-truncate align-middle"
+                                          style="max-width:150px"
+                                          title="{{ row.subject_list|join:'、' }}">{{ row.subject_list|join:"、" }}</span>
+                                {% else %}
+                                    <span class="text-muted">未加入学科班</span>
+                                {% endif %}
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="d-none d-lg-table-cell small text-truncate" style="max-width:180px">{{ row.email|default:"—" }}</td>
+                        <td>
+                            {% if row.is_active %}
+                                <span class="badge badge-soft badge-soft-teal">启用</span>
+                            {% else %}
+                                <span class="badge badge-soft badge-soft-gray">已停用</span>
+                            {% endif %}
+                        </td>
+                        <td class="d-none d-md-table-cell small">
+                            {% if row.last_login %}
+                                <span title="{{ row.last_login|date:'Y-m-d H:i:s' }}">{{ row.last_login|date:"Y-m-d H:i" }}</span>
+                                {% if row.last_login_ip %}
+                                    <div class="text-muted" style="font-size:11px">{{ row.last_login_ip }}</div>
+                                {% endif %}
+                            {% else %}
+                                <span class="text-muted">从未登录</span>
+                            {% endif %}
+                        </td>
+                        <td class="d-none d-xl-table-cell small text-muted">{{ row.date_joined|date:"Y-m-d" }}</td>
+                        <td class="text-end">
+                            <div class="d-inline-flex flex-wrap gap-1 justify-content-end">
+                                <a href="{% url 'manage-user-edit' row.id %}"
+                                   class="btn btn-sm btn-outline-secondary" title="编辑资料">
+                                    <i class="bi bi-pencil"></i> 编辑
+                                </a>
+
+                                {# 重置密码：不能对自己执行（AC-23），后端另有 10007/10010 兜底 #}
+                                {% if row.id == self_id %}
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled
+                                            title="不能对自己执行该操作，请到个人中心修改密码">
+                                        <i class="bi bi-key"></i> 重置密码
+                                    </button>
+                                {% else %}
+                                    <button type="button" class="btn btn-sm btn-outline-warning"
+                                            data-action="reset-password"
+                                            data-user-id="{{ row.id }}"
+                                            data-username="{{ row.username }}">
+                                        <i class="bi bi-key"></i> 重置密码
+                                    </button>
+                                {% endif %}
+
+                                {# 停用 / 启用：先判「最后一个启用管理员」（AC-18 页面文案），再判「自己」 #}
+                                {% if row.is_active and row.id == last_admin_id %}
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled
+                                            title="不能停用系统中最后一个启用的管理员">
+                                        <i class="bi bi-slash-circle"></i> 停用
+                                    </button>
+                                {% elif row.id == self_id %}
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled
+                                            title="不能停用自己的账号">
+                                        <i class="bi bi-slash-circle"></i> 停用
+                                    </button>
+                                {% elif row.is_active %}
+                                    <button type="button" class="btn btn-sm btn-outline-danger"
+                                            data-action="toggle-active"
+                                            data-user-id="{{ row.id }}"
+                                            data-username="{{ row.username }}"
+                                            data-active="1">
+                                        <i class="bi bi-slash-circle"></i> 停用
+                                    </button>
+                                {% else %}
+                                    <button type="button" class="btn btn-sm btn-outline-success"
+                                            data-action="toggle-active"
+                                            data-user-id="{{ row.id }}"
+                                            data-username="{{ row.username }}"
+                                            data-active="0">
+                                        <i class="bi bi-check-circle"></i> 启用
+                                    </button>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ============ 分页 ============ -->
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 p-3 border-top">
+            <span class="text-muted small">
+                共 {{ total_count }} 条{% if total_count %}，第 {{ page_obj.number }} / {{ paginator.num_pages }} 页{% endif %}
+            </span>
+            {% if paginator.num_pages > 1 %}
+            <nav aria-label="用户列表分页">
+                <ul class="pagination pagination-sm mb-0">
+                    <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
+                        <a class="page-link" href="?{{ querystring }}page={% if page_obj.has_previous %}{{ page_obj.previous_page_number }}{% else %}1{% endif %}">上一页</a>
+                    </li>
+                    {% for num in page_range %}
+                        {% if num == paginator.ELLIPSIS %}
+                            <li class="page-item disabled"><span class="page-link">{{ num }}</span></li>
+                        {% else %}
+                            <li class="page-item {% if num == page_obj.number %}active{% endif %}">
+                                <a class="page-link" href="?{{ querystring }}page={{ num }}">{{ num }}</a>
+                            </li>
+                        {% endif %}
+                    {% endfor %}
+                    <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
+                        <a class="page-link" href="?{{ querystring }}page={% if page_obj.has_next %}{{ page_obj.next_page_number }}{% else %}{{ paginator.num_pages }}{% endif %}">下一页</a>
+                    </li>
+                </ul>
+            </nav>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-people"></i>
+            {% if has_any_user and is_filtered %}
+                <p class="mb-1">没有符合条件的用户</p>
+                <a href="{% url 'manage-user-list' %}" class="btn btn-outline-secondary btn-sm mt-2">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i> 清空筛选条件
+                </a>
+            {% else %}
+                <p class="mb-1">还没有任何账号，先创建一个教师账号就可以开始建题库了</p>
+                <a href="{% url 'manage-user-create' %}" class="btn btn-brand btn-sm mt-2">
+                    <i class="bi bi-person-plus me-1"></i> 新建用户
+                </a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ============ 停用 / 启用 二次确认（AC-24） ============ -->
+<div class="modal fade" id="toggleModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title" id="toggleModalTitle">确认停用</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body small">
+                <p class="mb-2" id="toggleModalText">该账号将立即无法登录，其已有数据（题库、试卷、成绩）保留不变。</p>
+                <p class="text-muted mb-0">已登录的会话会在下一次请求时被强制退出。</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-danger btn-sm" id="toggleConfirm">确认停用</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============ 重置密码（AC-19 / AC-21） ============ -->
+<div class="modal fade" id="resetModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title">重置密码</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted" id="resetModalTarget"></p>
+                <div class="mb-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="pwd-mode" id="pwd-random" value="random" checked>
+                        <label class="form-check-label small" for="pwd-random">
+                            随机生成 12 位强密码（推荐）
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="pwd-mode" id="pwd-manual" value="manual">
+                        <label class="form-check-label small" for="pwd-manual">手动输入</label>
+                    </div>
+                </div>
+                <div class="mb-2 d-none" id="pwd-manual-wrap">
+                    <input type="password" class="form-control form-control-sm" id="pwd-manual-input"
+                           placeholder="至少 6 位，不能纯数字、不能是常见弱口令" autocomplete="new-password">
+                </div>
+                <div class="alert alert-success py-2 small d-none" id="pwd-result">
+                    新密码：<code id="pwd-result-text"></code>
+                    <button type="button" class="btn btn-sm btn-link p-0 ms-2" id="pwd-copy">复制</button>
+                    <div class="text-muted mt-1" style="font-size:11px">
+                        该密码只显示这一次，关闭后无法再次查看，请立即转告本人。
+                    </div>
+                </div>
+                <p class="small text-muted mb-0">重置后该用户所有已登录会话立即失效，需用新密码重新登录。</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-warning btn-sm" id="resetConfirm">
+                    <i class="bi bi-key me-1"></i> 重置密码
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script src="{% static 'js/manage.js' %}"></script>
+{% endblock %}

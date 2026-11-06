@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}考试结果 · {{ exam_title }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">{{ exam_title }}</h4>
+            <div class="text-muted small">交卷结果</div>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'wrong-book' %}" class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-journal-bookmark"></i> 我的错题本
+            </a>
+            <a href="{% url 'my-exams' %}" class="btn btn-outline-secondary btn-sm">返回我的考试</a>
+        </div>
+    </div>
+</div>
+
+<div class="container py-4">
+    <div id="result-host">
+        <div class="text-center text-muted py-5">加载中…</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(function () {
+    'use strict';
+
+    const EXAM_ID = {{ exam_id }};
+    const ATTEMPT_ID = {{ attempt_id|default:"null" }};
+
+    function esc(text) {
+        return String(text === null || text === undefined ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function fmt(n) { const v = Number(n || 0); return Number.isInteger(v) ? String(v) : v.toFixed(1); }
+    function fmtDuration(sec) {
+        sec = Math.max(0, Number(sec || 0));
+        const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+        const parts = [];
+        if (h) parts.push(h + ' 小时');
+        if (m) parts.push(m + ' 分');
+        parts.push(s + ' 秒');
+        return parts.join(' ');
+    }
+
+    async function load() {
+        const host = document.getElementById('result-host');
+        if (!ATTEMPT_ID) {
+            host.innerHTML = '<div class="text-center text-muted py-5">'
+                + '<i class="bi bi-inbox d-block mb-2" style="font-size:36px;opacity:.4"></i>'
+                + '你还没有参加这场考试</div>';
+            return;
+        }
+
+        // 作答概况来自模块四（用时 / 行为计数），成绩单来自模块五（逐题得分 / 评语）。
+        // 两者并行取，成绩单取不到时降级为「只显示作答概况」，不影响页面可用。
+        const summaryPromise = API.get('/attempts/' + ATTEMPT_ID + '/result/');
+        const reportPromise = API.get('/grading/attempts/' + ATTEMPT_ID + '/report/')
+            .catch(function () { return null; });
+
+        let summary;
+        try {
+            summary = await summaryPromise;
+        } catch (err) {
+            host.innerHTML = '<div class="text-center text-danger py-5">' + esc(UI.errorText(err)) + '</div>';
+            return;
+        }
+        const report = await reportPromise;
+        render(summary, report, host);
+    }
+
+    function render(summary, report, host) {
+        const prog = summary.progress || { answered: 0, total: 0 };
+        // 模块五的可见性规则更新更准（教师出分即发布），优先用它
+        const graded = report ? report.visible === true : summary.show_score === true;
+        const passed = report ? report.passed === true : summary.passed === true;
+        const score = report ? report.score : summary.score;
+        const totalScore = report ? report.total_score : summary.total_score;
+
+        let scoreBlock;
+        if (graded) {
+            scoreBlock = '<div class="text-center">'
+                + '<div style="font-size:12px" class="text-muted mb-1">本次得分</div>'
+                + '<div style="font-size:44px;font-weight:700;line-height:1" class="'
+                + (passed ? 'text-success' : 'text-danger') + '">' + fmt(score) + '</div>'
+                + '<div class="text-muted small mt-1">满分 ' + fmt(totalScore) + ' 分</div>'
+                + '<span class="badge badge-soft ' + (passed ? 'badge-soft-teal' : 'badge-soft-red')
+                + ' mt-2">' + (passed ? '及格' : '未及格') + '</span>';
+            if (report) {
+                scoreBlock += '<div class="row g-2 mt-3 pt-3 border-top">'
+                    + '<div class="col-6"><div class="text-muted" style="font-size:12px">客观题</div>'
+                    + '<div class="fw-semibold">' + fmt(report.objective_score) + '</div></div>'
+                    + '<div class="col-6"><div class="text-muted" style="font-size:12px">主观题</div>'
+                    + '<div class="fw-semibold">' + fmt(report.subjective_score) + '</div></div>'
+                    + '</div>';
+            }
+            scoreBlock += '</div>';
+        } else {
+            scoreBlock = '<div class="text-center">'
+                + '<i class="bi bi-hourglass-split text-muted" style="font-size:36px"></i>'
+                + '<div class="mt-2 fw-semibold">已交卷</div>'
+                + '<div class="text-muted small mt-1">成绩由教师阅卷后公布，请稍后查看</div></div>';
+        }
+
+        const statusBadge = summary.is_timeout ? 'badge-soft-red' : 'badge-soft-teal';
+        const statusText = summary.status_display + (summary.is_timeout ? '（超时）' : '');
+
+        // 逐题得分表：有成绩单就用成绩单的 items（带参考答案 / 解析 / 评语）
+        let answersBlock = '';
+        if (graded && report && report.items && report.items.length) {
+            answersBlock = renderDetail(report);
+        } else if (graded && summary.answers && summary.answers.length) {
+            answersBlock = renderSimple(summary.answers);
+        }
+
+        host.innerHTML = '<div class="row g-4">'
+            + '<div class="col-12 col-lg-4"><div class="card border-0 shadow-sm h-100" '
+            + 'style="border-radius:18px"><div class="card-body d-flex flex-column justify-content-center">'
+            + scoreBlock + '</div></div></div>'
+            + '<div class="col-12 col-lg-8"><div class="card border-0 shadow-sm h-100" '
+            + 'style="border-radius:18px"><div class="card-body">'
+            + '<h6 class="mb-3">作答概况</h6>'
+            + '<div class="row g-3">'
+            + infoCard('交卷状态', '<span class="badge badge-soft ' + statusBadge + '">'
+                + esc(statusText) + '</span>')
+            + infoCard('作答进度', prog.answered + ' / ' + prog.total + ' 题（'
+                + (prog.total ? Math.round(prog.answered * 100 / prog.total) : 0) + '%）')
+            + infoCard('用时', fmtDuration(summary.time_spent_seconds))
+            + infoCard('交卷时间', esc(summary.submitted_at || '—'))
+            + infoCard('作答次数', '第 ' + summary.attempt_no + ' 次')
+            + infoCard('行为记录', '切屏 ' + (summary.switch_count || 0) + ' 次'
+                + (summary.paste_count ? ' · 粘贴 ' + summary.paste_count + ' 次' : ''))
+            + '</div></div></div></div>'
+            + '</div>' + answersBlock;
+    }
+
+    // 逐题卡片：得分 / 参考答案 / 解析 / 评语
+    function renderDetail(report) {
+        const counts = report.counts || {};
+        const cards = report.items.map(function (a) {
+            const isSubjective = a.is_correct === null && (a.ai_score !== null || a.teacher_comment
+                || a.answer_text !== undefined);
+            let badge;
+            if (a.is_correct === true) {
+                badge = '<span class="badge badge-soft badge-soft-teal">正确</span>';
+            } else if (a.is_correct === false) {
+                badge = '<span class="badge badge-soft badge-soft-red">错误</span>';
+            } else if (!a.is_answered) {
+                badge = '<span class="badge badge-soft badge-soft-gray">未作答</span>';
+            } else {
+                badge = '<span class="badge badge-soft badge-soft-amber">已判分</span>';
+            }
+
+            let mine = a.selected_labels || a.answer_text || '';
+            let body = '<div class="d-flex justify-content-between align-items-start gap-2 mb-2">'
+                + '<div class="fw-semibold">第 ' + a.order + ' 题 · ' + esc(a.type_display) + '</div>'
+                + '<div class="text-nowrap">' + badge
+                + ' <span class="ms-1 fw-semibold">' + fmt(a.score) + '</span>'
+                + '<span class="text-muted small"> / ' + fmt(a.full_score) + '</span></div></div>'
+                + '<div class="small mb-2">' + esc(a.stem || '') + '</div>'
+                + '<div class="small"><span class="text-muted">我的作答：</span>'
+                + (mine ? esc(mine) : '<span class="text-muted">未作答</span>') + '</div>';
+
+            if (a.reference_answer) {
+                body += '<div class="small mt-1"><span class="text-muted">参考答案：</span>'
+                    + '<span class="text-success">' + esc(a.reference_answer) + '</span></div>';
+            }
+            if (a.teacher_comment) {
+                body += '<div class="small mt-1 p-2 rounded" style="background:var(--bs-tertiary-bg)">'
+                    + '<i class="bi bi-person-check text-primary"></i> <span class="text-muted">教师评语：</span>'
+                    + esc(a.teacher_comment) + '</div>';
+            }
+            if (a.ai_comment && a.ai_comment !== a.teacher_comment) {
+                body += '<div class="small mt-1 p-2 rounded" style="background:var(--bs-tertiary-bg)">'
+                    + '<i class="bi bi-robot text-info"></i> <span class="text-muted">AI 批改：</span>'
+                    + esc(a.ai_comment) + '</div>';
+            }
+            if (a.analysis) {
+                body += '<details class="small mt-2"><summary class="text-muted" style="cursor:pointer">'
+                    + '查看解析</summary><div class="mt-1">' + esc(a.analysis) + '</div></details>';
+            }
+            return '<div class="p-3 mb-2 rounded-3 border" style="border-radius:14px!important">' + body + '</div>';
+        }).join('');
+
+        const head = '<div class="d-flex flex-wrap gap-3 align-items-center mb-3 mt-4">'
+            + '<h6 class="mb-0">逐题得分</h6>'
+            + '<span class="badge badge-soft badge-soft-teal">答对 ' + (counts.correct || 0) + '</span>'
+            + '<span class="badge badge-soft badge-soft-red">答错 ' + (counts.wrong || 0) + '</span>'
+            + (counts.unanswered ? '<span class="badge badge-soft badge-soft-gray">未答 '
+                + counts.unanswered + '</span>' : '')
+            + '<a href="{% url 'wrong-book' %}" class="ms-auto small text-decoration-none">'
+            + '去错题本复习 <i class="bi bi-box-arrow-up-right"></i></a>'
+            + '</div>';
+
+        return head + cards;
+    }
+
+    // 成绩单拿不到时的降级表格（数据来自模块四的 result 接口）
+    function renderSimple(answers) {
+        const rows = answers.map(function (a) {
+            const ok = a.is_correct === true;
+            const icon = a.is_correct === null
+                ? '<i class="bi bi-dash-circle text-muted"></i>'
+                : (ok ? '<i class="bi bi-check-circle-fill text-success"></i>'
+                      : '<i class="bi bi-x-circle-fill text-danger"></i>');
+            return '<tr>'
+                + '<td class="text-center">' + a.order + '</td>'
+                + '<td>' + esc(a.type_display) + '</td>'
+                + '<td class="small">' + esc((a.stem || '').slice(0, 60)) + '…</td>'
+                + '<td class="small text-muted">' + esc(a.selected_labels || a.answer_text || '未作答').slice(0, 40) + '</td>'
+                + '<td class="text-center">' + icon + '</td>'
+                + '<td class="text-center">' + fmt(a.score) + '</td>'
+                + '</tr>';
+        }).join('');
+        return '<div class="table-card mt-4"><div class="table-responsive">'
+            + '<table class="table table-sm align-middle mb-0"><thead><tr>'
+            + '<th class="text-center" style="width:60px">题号</th><th>题型</th><th>题干</th>'
+            + '<th>我的作答</th><th class="text-center" style="width:70px">结果</th>'
+            + '<th class="text-center" style="width:70px">得分</th>'
+            + '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+    }
+
+    function infoCard(label, value) {
+        return '<div class="col-6 col-md-4"><div class="text-muted" style="font-size:12px">'
+            + label + '</div><div class="fw-semibold">' + value + '</div></div>';
+    }
+
+    load();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,542 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}题库管理 · AI 在线考试与学情分析系统{% endblock %}
+
+{% block extra_css %}
+<style>
+    .filter-bar { background: var(--surface); border: 1px solid rgba(15,23,42,.06); border-radius: 14px; padding: 14px; }
+    .kp-picker { max-height: 320px; overflow-y: auto; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">题库管理</h4>
+            <div class="text-muted small">维护单选 / 多选 / 判断 / 填空 / 简答 / 论述六种题型</div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="{% url 'ai-generate' %}" class="btn btn-brand btn-sm">
+                <i class="bi bi-magic me-1"></i> AI 出题
+            </a>
+            <a href="{% url 'question-create' %}" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-plus-lg me-1"></i> 新建题目
+            </a>
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#importModal">
+                    <i class="bi bi-upload me-1"></i> 导入
+                </button>
+                <button class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split"
+                        data-bs-toggle="dropdown"></button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="#" id="export-xlsx">导出 Excel (.xlsx)</a></li>
+                    <li><a class="dropdown-item" href="#" id="export-csv">导出 CSV</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="#" id="download-template">下载导入模板</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container py-4">
+
+    <!-- 统计 -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ summary.total }}</div>
+                <div class="stat-label">题目总数</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ summary.active }}</div>
+                <div class="stat-label">启用中</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ summary.ai_generated }}</div>
+                <div class="stat-label">AI 生成</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ summary.knowledge_points }}</div>
+                <div class="stat-label">知识点</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 筛选 -->
+    <div class="filter-bar mb-3">
+        <div class="row g-2 align-items-end">
+            <div class="col-6 col-md-3 col-lg-2">
+                <label class="form-label small mb-1">科目</label>
+                <select class="form-select form-select-sm" id="f-subject">
+                    <option value="">全部科目</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-3 col-lg-2">
+                <label class="form-label small mb-1">题型</label>
+                <select class="form-select form-select-sm" id="f-type">
+                    <option value="">全部</option>
+                    <option value="single">单选题</option>
+                    <option value="multiple">多选题</option>
+                    <option value="judge">判断题</option>
+                    <option value="fill">填空题</option>
+                    <option value="short">简答题</option>
+                    <option value="essay">论述题</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-2 col-lg-1">
+                <label class="form-label small mb-1">难度</label>
+                <select class="form-select form-select-sm" id="f-difficulty">
+                    <option value="">全部</option>
+                    <option value="1">简单</option>
+                    <option value="2">中等</option>
+                    <option value="3">困难</option>
+                    <option value="4">挑战</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-2 col-lg-2">
+                <label class="form-label small mb-1">来源</label>
+                <select class="form-select form-select-sm" id="f-source">
+                    <option value="">全部</option>
+                    <option value="manual">手动录入</option>
+                    <option value="ai">AI 生成</option>
+                    <option value="import">批量导入</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-2 col-lg-2">
+                <label class="form-label small mb-1">知识点</label>
+                <select class="form-select form-select-sm" id="f-knowledge">
+                    <option value="">全部</option>
+                </select>
+            </div>
+            <div class="col-12 col-md-6 col-lg-2">
+                <label class="form-label small mb-1">关键字</label>
+                <input type="text" class="form-control form-control-sm" id="f-keyword" placeholder="题干 / 解析">
+            </div>
+            <div class="col-12 col-md-6 col-lg-1 d-grid">
+                <button class="btn btn-outline-secondary btn-sm" id="btn-reset">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 列表 -->
+    <div class="table-card">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0 align-middle">
+                <thead>
+                <tr>
+                    <th style="width:110px;">科目</th>
+                    <th style="width:90px;">题型</th>
+                    <th>题干</th>
+                    <th style="width:80px;">难度</th>
+                    <th style="width:70px;">分值</th>
+                    <th style="width:150px;">知识点</th>
+                    <th style="width:95px;">来源</th>
+                    <th style="width:110px;">正确率</th>
+                    <th style="width:130px;" class="text-end">操作</th>
+                </tr>
+                </thead>
+                <tbody id="question-rows">
+                <tr><td colspan="9" class="text-center py-5 text-muted">
+                    <span class="spinner-border spinner-border-sm me-2"></span>加载中…
+                </td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 p-3 border-top">
+            <div class="text-muted small" id="page-info"></div>
+            <nav><ul class="pagination pagination-sm mb-0" id="pager"></ul></nav>
+        </div>
+    </div>
+</div>
+
+<!-- ================= 导入弹窗 ================= -->
+<div class="modal fade" id="importModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title"><i class="bi bi-upload me-1"></i> 批量导入题目</h6>
+                <button class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-light border small mb-3">
+                    支持 <b>.xlsx</b> 与 <b>.csv</b>。列头请使用：
+                    <code>知识点编号 / 知识点 / 学科 / 题型 / 难度 / 分值 / 题干 / 选项A~F / 正确答案 / 解析</code>。
+                    多值（如填空题多个空）用 <code>|</code> 分隔。<br>
+                    建议先
+                    <a href="#" id="download-template-2" class="fw-semibold">下载模板</a>
+                    照着改，或先勾选「仅解析不入库」试跑一遍。
+                </div>
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label class="form-label small">选择文件</label>
+                        <div class="input-group input-group-sm">
+                            <input type="file" class="form-control form-control-sm" id="import-file"
+                                   accept=".xlsx,.xlsm,.csv,.txt">
+                            <button class="btn btn-outline-secondary" type="button"
+                                    id="btn-import-clear" disabled>清空</button>
+                        </div>
+                        <div class="form-text" id="import-file-name">未选择文件</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small">默认学科</label>
+                        <input type="text" class="form-control form-control-sm" id="import-subject"
+                               placeholder="可留空">
+                    </div>
+                </div>
+                <div class="form-check mt-3">
+                    <input class="form-check-input" type="checkbox" id="import-dry-run" checked>
+                    <label class="form-check-label small" for="import-dry-run">
+                        仅解析不入库（先用它检查格式有没有问题）
+                    </label>
+                </div>
+                <div id="import-result" class="mt-3"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">关闭</button>
+                <button class="btn btn-brand btn-sm" id="btn-import">
+                    <i class="bi bi-play-fill me-1"></i> <span id="import-btn-text">开始解析（不入库）</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(function () {
+    const state = { page: 1, page_size: 10, total: 0 };
+    const tbody = document.getElementById('question-rows');
+
+    /* ---------------- 知识点下拉 ---------------- */
+    async function loadKnowledgePoints() {
+        try {
+            const tree = await API.get('/knowledge-points/tree/');
+            const select = document.getElementById('f-knowledge');
+            const walk = (nodes, depth) => {
+                nodes.forEach(node => {
+                    const option = document.createElement('option');
+                    option.value = node.id;
+                    option.textContent = '　'.repeat(depth) + node.name + '（' + node.question_count + '）';
+                    select.appendChild(option);
+                    if (node.children && node.children.length) walk(node.children, depth + 1);
+                });
+            };
+            walk(tree, 0);
+        } catch (err) { /* 知识点为空时忽略 */ }
+    }
+
+    /* ---------------- 科目下拉（按题库分科目） ---------------- */
+    async function loadSubjects() {
+        try {
+            const data = await API.get('/questions/subjects/');
+            const select = document.getElementById('f-subject');
+            (data.results || []).forEach(row => {
+                const option = document.createElement('option');
+                option.value = row.subject;
+                option.textContent = row.label + '（' + row.count + '）';
+                select.appendChild(option);
+            });
+        } catch (err) { /* 科目为空时忽略 */ }
+    }
+
+    /* ---------------- 列表 ---------------- */
+    function currentFilters() {
+        return {
+            page: state.page,
+            page_size: state.page_size,
+            subject: document.getElementById('f-subject').value,
+            type: document.getElementById('f-type').value,
+            difficulty: document.getElementById('f-difficulty').value,
+            source: document.getElementById('f-source').value,
+            knowledge_point: document.getElementById('f-knowledge').value,
+            keyword: document.getElementById('f-keyword').value.trim(),
+        };
+    }
+
+    function rowHtml(q) {
+        const typeLabel = LABELS.TYPE[q.type] || q.type;
+        const diffBadge = LABELS.DIFFICULTY_BADGE[q.difficulty] || 'bg-secondary-subtle';
+        const diffLabel = LABELS.DIFFICULTY[q.difficulty] || q.difficulty;
+        const kps = q.knowledge_points.length
+            ? q.knowledge_points.map(k => '<span class="badge bg-light text-dark border me-1">' + escapeHtml(k.name) + '</span>').join('')
+            : '<span class="text-muted small">未标注</span>';
+        const accuracy = q.usage_count
+            ? (q.accuracy * 100).toFixed(0) + '% <span class="text-muted">(' + q.usage_count + ')</span>'
+            : '<span class="text-muted">—</span>';
+
+        return `
+        <tr>
+            <td><span class="small fw-semibold">${escapeHtml(q.subject || '未分类')}</span></td>
+            <td><span class="type-tag type-${q.type}">${typeLabel}</span></td>
+            <td class="stem-cell">
+                <div class="stem-text">${escapeHtml(q.stem)}</div>
+                ${q.is_active ? '' : '<span class="badge bg-secondary-subtle text-secondary-emphasis mt-1">已停用</span>'}
+                ${q.is_reviewed ? '' : '<span class="badge bg-warning-subtle text-warning-emphasis mt-1">待审核</span>'}
+            </td>
+            <td><span class="badge ${diffBadge}">${diffLabel}</span></td>
+            <td>${q.score}</td>
+            <td>${kps}</td>
+            <td><span class="small text-muted">${LABELS.SOURCE[q.source] || q.source}</span></td>
+            <td class="small">${accuracy}</td>
+            <td class="text-end">
+                <a class="btn btn-sm btn-outline-primary py-0 px-2" href="/question-bank/${q.id}/edit/"
+                   title="编辑"><i class="bi bi-pencil"></i></a>
+                <button class="btn btn-sm btn-outline-secondary py-0 px-2 btn-explain"
+                        data-id="${q.id}" title="AI 生成解析"><i class="bi bi-robot"></i></button>
+                <button class="btn btn-sm btn-outline-danger py-0 px-2 btn-delete"
+                        data-id="${q.id}" title="停用"><i class="bi bi-trash3"></i></button>
+            </td>
+        </tr>`;
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text == null ? '' : String(text);
+        return div.innerHTML;
+    }
+
+    function shortStem(text) {
+        const value = (text == null ? '' : String(text)).trim();
+        return value.length > 20 ? value.slice(0, 20) + '…' : (value || '（空题干）');
+    }
+
+    async function loadQuestions() {
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center py-5 text-muted">'
+            + '<span class="spinner-border spinner-border-sm me-2"></span>加载中…</td></tr>';
+        try {
+            const data = await API.get('/questions/', currentFilters());
+            state.total = data.count;
+
+            if (!data.results.length) {
+                tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state">'
+                    + '<i class="bi bi-inbox"></i>还没有符合条件的题目</div></td></tr>';
+            } else {
+                tbody.innerHTML = data.results.map(rowHtml).join('');
+            }
+
+            const from = data.count ? (data.page - 1) * data.page_size + 1 : 0;
+            const to = Math.min(data.page * data.page_size, data.count);
+            document.getElementById('page-info').textContent =
+                `共 ${data.count} 条，当前第 ${from}-${to} 条`;
+
+            renderPager(data);
+        } catch (err) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-danger">'
+                + escapeHtml(UI.errorText(err)) + '</td></tr>';
+        }
+    }
+
+    function renderPager(data) {
+        const pager = document.getElementById('pager');
+        const total = data.total_pages || 1;
+        const page = data.page || 1;
+        let html = '';
+
+        const item = (label, target, disabled, active) =>
+            `<li class="page-item ${disabled ? 'disabled' : ''} ${active ? 'active' : ''}">
+                <a class="page-link" href="#" data-page="${target}">${label}</a></li>`;
+
+        html += item('«', page - 1, page <= 1, false);
+        const start = Math.max(1, page - 2);
+        const end = Math.min(total, start + 4);
+        for (let i = start; i <= end; i++) html += item(i, i, false, i === page);
+        html += item('»', page + 1, page >= total, false);
+        pager.innerHTML = html;
+
+        pager.querySelectorAll('a[data-page]').forEach(link => {
+            link.addEventListener('click', (event) => {
+                event.preventDefault();
+                const target = parseInt(link.dataset.page, 10);
+                if (target >= 1 && target <= total && target !== page) {
+                    state.page = target;
+                    loadQuestions();
+                }
+            });
+        });
+    }
+
+    /* ---------------- 行内操作 ---------------- */
+    tbody.addEventListener('click', async (event) => {
+        const explainBtn = event.target.closest('.btn-explain');
+        const deleteBtn = event.target.closest('.btn-delete');
+
+        if (explainBtn) {
+            UI.setBusy(explainBtn, true, '');
+            try {
+                const result = await API.post(`/questions/${explainBtn.dataset.id}/ai-explain/`, {});
+                UI.success('解析已生成');
+                setTimeout(() => global_alert_analysis(result.analysis), 300);
+            } catch (err) {
+                UI.error(UI.errorText(err));
+            } finally {
+                UI.setBusy(explainBtn, false);
+            }
+        }
+
+        if (deleteBtn) {
+            if (!confirm('停用这道题？已引用它的试卷和成绩记录不受影响。')) return;
+            try {
+                await API.del(`/questions/${deleteBtn.dataset.id}/`);
+                UI.success('题目已停用');
+                loadQuestions();
+            } catch (err) {
+                UI.error(UI.errorText(err));
+            }
+        }
+    });
+
+    function global_alert_analysis(text) {
+        const container = document.getElementById('toast-container');
+        const el = document.createElement('div');
+        el.className = 'alert alert-light border shadow-sm small';
+        el.style.maxHeight = '260px';
+        el.style.overflowY = 'auto';
+        el.innerHTML = '<b>AI 解析</b><br>' + escapeHtml(text).replace(/\n/g, '<br>');
+        container.appendChild(el);
+        setTimeout(() => el.remove(), 12000);
+    }
+
+    /* ---------------- 筛选事件 ---------------- */
+    let keywordTimer = null;
+    ['f-subject', 'f-type', 'f-difficulty', 'f-source', 'f-knowledge'].forEach(id => {
+        document.getElementById(id).addEventListener('change', () => { state.page = 1; loadQuestions(); });
+    });
+    document.getElementById('f-keyword').addEventListener('input', () => {
+        clearTimeout(keywordTimer);
+        keywordTimer = setTimeout(() => { state.page = 1; loadQuestions(); }, 400);
+    });
+    document.getElementById('btn-reset').addEventListener('click', () => {
+        ['f-subject', 'f-type', 'f-difficulty', 'f-source', 'f-knowledge'].forEach(id => {
+            document.getElementById(id).value = '';
+        });
+        document.getElementById('f-keyword').value = '';
+        state.page = 1;
+        loadQuestions();
+    });
+
+    /* ---------------- 导入 / 导出 ---------------- */
+    const importFileEl = document.getElementById('import-file');
+    const importClearEl = document.getElementById('btn-import-clear');
+    const importFileNameEl = document.getElementById('import-file-name');
+    const importDryRunEl = document.getElementById('import-dry-run');
+    const importResultEl = document.getElementById('import-result');
+
+    // 按钮文案跟着「仅解析不入库」走：勾着的时候它只做解析，不该叫「开始导入」
+    function syncImportMode() {
+        // 每次现查而不是缓存引用：UI.setBusy 结束时会用 innerHTML 快照回写按钮，
+        // 按钮内部的 span 会被整个重建，缓存的引用会变成游离节点（改了文案页面不更新）。
+        const el = document.getElementById('import-btn-text');
+        if (el) el.textContent = importDryRunEl.checked ? '开始解析（不入库）' : '开始导入';
+    }
+
+    function resetImportForm() {
+        importFileEl.value = '';
+        importResultEl.innerHTML = '';
+        importFileNameEl.textContent = '未选择文件';
+        importFileNameEl.classList.remove('text-success');
+        importClearEl.disabled = true;
+    }
+
+    importFileEl.addEventListener('change', () => {
+        const f = importFileEl.files[0];
+        if (f) {
+            importFileNameEl.textContent = `已选择：${f.name}（${(f.size / 1024).toFixed(1)} KB）`;
+            importFileNameEl.classList.add('text-success');
+            importClearEl.disabled = false;
+        } else {
+            importFileNameEl.textContent = '未选择文件';
+            importFileNameEl.classList.remove('text-success');
+            importClearEl.disabled = true;
+        }
+    });
+
+    importDryRunEl.addEventListener('change', syncImportMode);
+    syncImportMode();
+
+    importClearEl.addEventListener('click', () => {
+        resetImportForm();
+        UI.toast('已清空所选文件');
+    });
+
+    // 关闭弹窗即复位，避免下次打开还挂着上一次的文件与解析结果
+    document.getElementById('importModal').addEventListener('hidden.bs.modal', resetImportForm);
+
+    document.getElementById('btn-import').addEventListener('click', async (event) => {
+        // event.currentTarget 在第一个 await 之后会被浏览器置空，必须先存下来；
+        // 否则 finally 里的 setBusy(button, false) 拿到 null 直接 return，
+        // 按钮会永远停在「导入中…」——这正是「仅解析不入库也一直显示导入中」的原因。
+        const btn = event.currentTarget;
+        if (!importFileEl.files.length) { UI.error('请先选择文件'); return; }
+
+        const dryRun = importDryRunEl.checked;
+        const formData = new FormData();
+        formData.append('file', importFileEl.files[0]);
+        formData.append('subject', document.getElementById('import-subject').value);
+        formData.append('dry_run', dryRun ? 'true' : 'false');
+
+        const area = importResultEl;
+        UI.setBusy(btn, true, dryRun ? '解析中…' : '导入中…');
+        try {
+            const data = await API.upload('/questions/import/', formData);
+            const skipped = data.skipped || [];
+            const skippedText = data.skipped_count
+                ? `，跳过 ${data.skipped_count} 道重复` : '';
+            let html = `<div class="alert alert-success py-2 small mb-2">
+                解析 ${data.parsed} 行，入库 ${data.created_count} 道${skippedText}${data.dry_run ? '（试跑模式，未入库）' : ''}
+            </div>`;
+            if (skipped.length) {
+                const more = data.skipped_count > skipped.length
+                    ? `<li class="text-muted">…… 共 ${data.skipped_count} 条，仅显示前 ${skipped.length} 条</li>` : '';
+                html += '<div class="alert alert-secondary py-2 small mb-2"><b>以下行与已有题目重复，已跳过：</b>'
+                    + '<ul class="mb-0 ps-3">'
+                    + skipped.map(s => `<li>第 ${s.row == null ? '-' : s.row} 行：${escapeHtml(shortStem(s.stem))}`
+                        + `<span class="text-muted">（${s.reason === 'batch' ? '文件内重复' : '题库已有'}）</span></li>`).join('')
+                    + more + '</ul></div>';
+            }
+            if (data.errors && data.errors.length) {
+                html += '<div class="alert alert-warning py-2 small mb-0"><b>以下行有问题：</b><ul class="mb-0 ps-3">'
+                    + data.errors.map(e => `<li>第 ${e.row} 行：${escapeHtml(e.error)}</li>`).join('')
+                    + '</ul></div>';
+            }
+            area.innerHTML = html;
+            if (!dryRun) loadQuestions();
+        } catch (err) {
+            area.innerHTML = '<div class="alert alert-danger py-2 small mb-0">'
+                + escapeHtml(UI.errorText(err)) + '</div>';
+        } finally {
+            UI.setBusy(btn, false);
+        }
+    });
+
+    document.getElementById('export-xlsx').addEventListener('click', (e) => {
+        e.preventDefault();
+        API.download('/questions/export/', { file_format: 'xlsx' });
+    });
+    document.getElementById('export-csv').addEventListener('click', (e) => {
+        e.preventDefault();
+        API.download('/questions/export/', { file_format: 'csv' });
+    });
+    ['download-template', 'download-template-2'].forEach(id => {
+        document.getElementById(id).addEventListener('click', (e) => {
+            e.preventDefault();
+            API.download('/questions/import-template/');
+        });
+    });
+
+    /* ---------------- 启动 ---------------- */
+    Promise.all([loadKnowledgePoints(), loadSubjects()]).then(loadQuestions);
+})();
+</script>
+{% endblock %}

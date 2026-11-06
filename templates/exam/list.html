@@ -1,0 +1,626 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}考试管理 · AI 在线考试与学情分析系统{% endblock %}
+
+{% block extra_css %}
+<style>
+    .exam-row-title { font-weight: 600; }
+    .window-cell { font-size: 12px; line-height: 1.5; }
+    .counter-pill {
+        display: inline-flex; flex-direction: column; align-items: center;
+        min-width: 52px; padding: 2px 8px; border-radius: 10px;
+        background: #f8fafc; border: 1px solid rgba(15,23,42,.06);
+    }
+    .counter-pill b { font-size: 15px; line-height: 1.1; }
+    .counter-pill span { font-size: 10px; color: var(--ink-400); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">考试管理</h4>
+            <div class="text-muted small">发布考试 → 学生限时作答 → 监控进度与违规行为</div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="{% url 'paper-list' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-file-earmark-text me-1"></i> 去试卷库
+            </a>
+            <button class="btn btn-brand btn-sm" id="btn-new-exam">
+                <i class="bi bi-plus-lg me-1"></i> 新建考试
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="container py-4">
+
+    <!-- 统计卡 -->
+    <div class="row g-3 mb-4" id="stat-row">
+        <div class="col-6 col-lg-3"><div class="stat-card">
+            <div class="stat-value" id="stat-total">—</div><div class="stat-label">考试总数</div>
+        </div></div>
+        <div class="col-6 col-lg-3"><div class="stat-card">
+            <div class="stat-value" id="stat-running">—</div><div class="stat-label">进行中</div>
+        </div></div>
+        <div class="col-6 col-lg-3"><div class="stat-card">
+            <div class="stat-value" id="stat-attempts">—</div><div class="stat-label">累计作答</div>
+        </div></div>
+        <div class="col-6 col-lg-3"><div class="stat-card">
+            <div class="stat-value" id="stat-progress">—</div><div class="stat-label">正在答题</div>
+        </div></div>
+    </div>
+
+    <!-- 筛选 -->
+    <div class="filter-bar mb-3">
+        <div class="row g-2 align-items-end">
+            <div class="col-6 col-lg-2">
+                <label class="form-label small mb-1">状态</label>
+                <select class="form-select form-select-sm" id="f-status">
+                    <option value="">全部</option>
+                    {% for item in status_choices %}
+                        <option value="{{ item.value }}">{{ item.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-lg-2">
+                <label class="form-label small mb-1">学科</label>
+                <select class="form-select form-select-sm" id="f-subject">
+                    <option value="">全部</option>
+                    {% for subject in subjects %}
+                        <option value="{{ subject }}">{{ subject }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 col-lg-4">
+                <label class="form-label small mb-1">关键词</label>
+                <input type="text" class="form-control form-control-sm" id="f-keyword"
+                       placeholder="考试名称 / 说明 / 学科">
+            </div>
+            <div class="col-6 col-lg-2">
+                <div class="form-check pt-lg-4">
+                    <input class="form-check-input" type="checkbox" id="f-open">
+                    <label class="form-check-label small" for="f-open">只看可开考</label>
+                </div>
+            </div>
+            <div class="col-6 col-lg-2 text-lg-end">
+                <button class="btn btn-outline-secondary btn-sm" id="btn-reset">重置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 列表 -->
+    <div class="table-card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th style="min-width:220px">考试</th>
+                        <th>试卷</th>
+                        <th>状态</th>
+                        <th style="min-width:170px">时间窗</th>
+                        <th class="text-center">时长</th>
+                        <th class="text-center">应考/已交</th>
+                        <th style="width:190px" class="text-end">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="exam-body">
+                    <tr><td colspan="7" class="text-center text-muted py-5">加载中…</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="d-flex justify-content-between align-items-center p-3 border-top">
+            <div class="small text-muted" id="page-info">—</div>
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-secondary" id="btn-prev">上一页</button>
+                <button class="btn btn-outline-secondary" id="btn-next">下一页</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========== 新建 / 编辑考试 ========== -->
+<div class="modal fade" id="examModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title" id="exam-modal-title">新建考试</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label small">考试名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm" id="e-title"
+                               placeholder="如：数据结构期中考试">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small">试卷 <span class="text-danger">*</span></label>
+                        <select class="form-select form-select-sm" id="e-paper"></select>
+                        <div class="form-text">只有「已发布」的试卷能用于考试；草稿卷请先去试卷模块发布。</div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small">考试说明（学生答题页顶部会看到）</label>
+                        <textarea class="form-control form-control-sm" id="e-desc" rows="2"
+                                  placeholder="如：闭卷考试，可携带计算器；开考后不可离开座位。"></textarea>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small">开始时间</label>
+                        <input type="datetime-local" class="form-control form-control-sm" id="e-start">
+                        <div class="form-text">留空 = 发布后立即可考</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small">结束时间</label>
+                        <input type="datetime-local" class="form-control form-control-sm" id="e-end">
+                        <div class="form-text">留空 = 不限结束时间</div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small">时长（分钟）</label>
+                        <input type="number" class="form-control form-control-sm" id="e-duration" min="0" value="0">
+                        <div class="form-text">0 = 用试卷时长</div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small">及格分</label>
+                        <input type="number" step="0.5" class="form-control form-control-sm" id="e-pass"
+                               placeholder="留空用试卷的">
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small">允许作答次数</label>
+                        <input type="number" class="form-control form-control-sm" id="e-attempts" min="1" max="10" value="1">
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small">切屏上限</label>
+                        <input type="number" class="form-control form-control-sm" id="e-switch" min="0" max="999" value="5">
+                    </div>
+
+                    <div class="col-12"><hr class="my-1"></div>
+
+                    <div class="col-md-6">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="e-shuffle-q">
+                            <label class="form-check-label small" for="e-shuffle-q">题目乱序（每人题序不同）</label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="e-shuffle-o">
+                            <label class="form-check-label small" for="e-shuffle-o">选项乱序</label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="e-resume" checked>
+                            <label class="form-check-label small" for="e-resume">允许断网续考</label>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="e-detect-switch" checked>
+                            <label class="form-check-label small" for="e-detect-switch">检测切屏</label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="e-detect-paste" checked>
+                            <label class="form-check-label small" for="e-detect-paste">检测粘贴</label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="e-auto-submit">
+                            <label class="form-check-label small" for="e-auto-submit">切屏超限立即强制交卷</label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="e-fullscreen">
+                            <label class="form-check-label small" for="e-fullscreen">要求全屏作答</label>
+                        </div>
+                    </div>
+
+                    <div class="col-12"><hr class="my-1"></div>
+
+                    <div class="col-12">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="e-open-all" checked>
+                            <label class="form-check-label small" for="e-open-all">面向全体学生</label>
+                            <div class="form-text">学科老师将面向你所教的该学科全部学生；管理员为全校学生。</div>
+                        </div>
+                        <div id="participant-wrap" class="mt-2 d-none">
+                            <label class="form-label small">按班级指定考生</label>
+                            <div class="border rounded p-2" style="max-height:240px;overflow:auto" id="candidate-list">
+                                <div class="text-muted small">加载中…</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-brand btn-sm" id="btn-save-exam">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(function () {
+    'use strict';
+
+    const PAGE_SIZE = 10;
+    let page = 1;
+    let totalPages = 1;
+    const state = { papers: [], candidates: [], editing: null };
+
+    const STATUS_BADGE = {
+        draft: 'badge-soft-gray', published: 'badge-soft-amber',
+        ongoing: 'badge-soft-teal', finished: 'badge-soft-purple', archived: 'badge-soft-gray',
+    };
+
+    const modalEl = document.getElementById('examModal');
+    const modal = new bootstrap.Modal(modalEl);
+
+    function esc(text) {
+        return String(text === null || text === undefined ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+    function fmt(n, digits) {
+        const num = Number(n || 0);
+        return Number.isInteger(num) ? String(num) : num.toFixed(digits === undefined ? 1 : digits);
+    }
+    function toLocalInput(value) {
+        // "2026-09-30 14:00:00" → "2026-09-30T14:00"
+        if (!value) return '';
+        return String(value).replace(' ', 'T').slice(0, 16);
+    }
+
+    /* ---------------- 统计 ---------------- */
+    async function loadStats() {
+        try {
+            const data = await API.get('/exams/statistics/');
+            document.getElementById('stat-total').textContent = data.total;
+            document.getElementById('stat-running').textContent = data.running;
+            document.getElementById('stat-attempts').textContent = data.attempt_total;
+            document.getElementById('stat-progress').textContent = data.in_progress;
+        } catch (err) {
+            UI.error(UI.errorText(err));
+        }
+    }
+
+    /* ---------------- 列表 ---------------- */
+    function filters() {
+        return {
+            page: page,
+            page_size: PAGE_SIZE,
+            status: document.getElementById('f-status').value,
+            subject: document.getElementById('f-subject').value,
+            search: document.getElementById('f-keyword').value.trim(),
+            is_open_now: document.getElementById('f-open').checked ? 'true' : '',
+        };
+    }
+
+    async function loadList() {
+        const tbody = document.getElementById('exam-body');
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-5">加载中…</td></tr>';
+        let data;
+        try {
+            data = await API.get('/exams/', filters());
+        } catch (err) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-5">'
+                + esc(UI.errorText(err)) + '</td></tr>';
+            return;
+        }
+
+        totalPages = data.total_pages || 1;
+        document.getElementById('page-info').textContent =
+            '共 ' + data.count + ' 场考试 · 第 ' + data.page + '/' + totalPages + ' 页';
+        document.getElementById('btn-prev').disabled = !data.previous;
+        document.getElementById('btn-next').disabled = !data.next;
+
+        if (!data.results.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-5">'
+                + '<i class="bi bi-inbox d-block mb-2" style="font-size:28px;opacity:.4"></i>'
+                + '还没有考试，点右上角「新建考试」开始</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = data.results.map(rowHtml).join('');
+        bindRowActions();
+    }
+
+    function windowHtml(item) {
+        if (!item.start_time && !item.end_time) {
+            return '<span class="text-muted window-cell">不限时间<br>（发布即可考）</span>';
+        }
+        const start = item.start_time ? item.start_time.slice(5, 16) : '不限';
+        const end = item.end_time ? item.end_time.slice(5, 16) : '不限';
+        return '<span class="window-cell">' + esc(start) + '<br>→ ' + esc(end) + '</span>';
+    }
+
+    function rowHtml(item) {
+        const status = item.computed_status || item.status;
+        const badge = STATUS_BADGE[status] || 'badge-soft-gray';
+        return '<tr data-id="' + item.id + '">'
+            + '<td><div class="exam-row-title">' + esc(item.title) + '</div>'
+            + '<div class="text-muted" style="font-size:12px">' + esc(item.subject || '未设学科')
+            + (item.is_open ? ' · <span class="text-success">可作答</span>' : '') + '</div></td>'
+            + '<td class="small">' + esc(item.paper_title)
+            + '<div class="text-muted" style="font-size:12px">'
+            + fmt(item.total_score) + ' 分 / ' + item.question_count + ' 题</div></td>'
+            + '<td><span class="badge badge-soft ' + badge + '">'
+            + esc(item.computed_status_display || item.status_display) + '</span></td>'
+            + '<td>' + windowHtml(item) + '</td>'
+            + '<td class="text-center small">' + item.duration_minutes_effective + ' 分</td>'
+            + '<td class="text-center">'
+            + '<span class="counter-pill"><b>' + item.attempt_total + '</b><span>/ ' + item.applicants + ' 应考</span></span>'
+            + (item.in_progress_total
+                ? ' <span class="counter-pill"><b class="text-success">' + item.in_progress_total
+                  + '</b><span>答题中</span></span>'
+                : '')
+            + '</td>'
+            + '<td class="text-end">' + actionsHtml(item, status) + '</td>'
+            + '</tr>';
+    }
+
+    function actionsHtml(item, status) {
+        // 常用操作直接平铺（一键可达），低频/危险操作收进右侧下拉，不再要求先点小三角
+        let html = '<div class="d-flex flex-wrap gap-1 justify-content-end">';
+        html += '<a class="btn btn-outline-primary btn-sm" href="/exams/' + item.id + '/monitor/">监控</a>';
+        html += '<button class="btn btn-outline-secondary btn-sm act-edit" data-id="' + item.id + '">编辑</button>';
+        if (status === 'draft') {
+            html += '<button class="btn btn-outline-success btn-sm act-status" data-id="' + item.id
+                + '" data-status="published">发布</button>';
+        }
+        if (status === 'published') {
+            html += '<button class="btn btn-outline-success btn-sm act-status" data-id="' + item.id
+                + '" data-status="ongoing">开始考试</button>';
+        }
+        if (status === 'ongoing' || status === 'published') {
+            html += '<button class="btn btn-outline-secondary btn-sm act-status" data-id="' + item.id
+                + '" data-status="finished">结束</button>';
+        }
+        html += '<div class="btn-group btn-group-sm">';
+        html += '<button class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" '
+            + 'title="更多操作"></button>';
+        html += '<ul class="dropdown-menu dropdown-menu-end">';
+        if (status !== 'draft') {
+            html += '<li><a class="dropdown-item act-status" href="#" data-id="' + item.id
+                + '" data-status="draft">退回草稿</a></li>';
+        }
+        html += '<li><a class="dropdown-item act-status" href="#" data-id="' + item.id
+            + '" data-status="archived">归档</a></li>';
+        html += '<li><hr class="dropdown-divider"></li>';
+        html += '<li><a class="dropdown-item text-danger act-delete" href="#" data-id="' + item.id
+            + '">删除</a></li>';
+        html += '</ul></div>';
+        html += '</div>';
+        return html;
+    }
+
+    function bindRowActions() {
+        document.querySelectorAll('.act-status').forEach(function (el) {
+            el.addEventListener('click', function (e) {
+                e.preventDefault();
+                changeStatus(el.dataset.id, el.dataset.status);
+            });
+        });
+        document.querySelectorAll('.act-delete').forEach(function (el) {
+            el.addEventListener('click', function (e) {
+                e.preventDefault();
+                removeExam(el.dataset.id);
+            });
+        });
+        document.querySelectorAll('.act-edit').forEach(function (el) {
+            el.addEventListener('click', function (e) {
+                e.preventDefault();
+                openEditor(el.dataset.id);
+            });
+        });
+    }
+
+    async function changeStatus(id, status) {
+        try {
+            const data = await API.post('/exams/' + id + '/status/', { status: status });
+            UI.success('已切换到「' + data.status_display + '」');
+            loadList(); loadStats();
+        } catch (err) {
+            UI.error(UI.errorText(err));
+        }
+    }
+
+    async function removeExam(id) {
+        if (!window.confirm('删除考试会同时删除它的作答记录；若已有学生作答，系统会阻止删除。确定继续？')) return;
+        try {
+            await API.del('/exams/' + id + '/');
+            UI.success('已删除');
+            loadList(); loadStats();
+        } catch (err) {
+            UI.error(UI.errorText(err));
+        }
+    }
+
+    /* ---------------- 弹窗 ---------------- */
+    async function loadPapers() {
+        const select = document.getElementById('e-paper');
+        select.innerHTML = '<option value="">加载中…</option>';
+        try {
+            const data = await API.get('/papers/', { status: 'published', page_size: 100 });
+            state.papers = data.results || [];
+        } catch (err) {
+            state.papers = [];
+        }
+        if (!state.papers.length) {
+            select.innerHTML = '<option value="">（没有已发布的试卷，请先去试卷模块发布）</option>';
+            return;
+        }
+        select.innerHTML = '<option value="">请选择试卷</option>' + state.papers.map(function (p) {
+            return '<option value="' + p.id + '">' + esc(p.title) + '（'
+                + fmt(p.total_score) + ' 分 / ' + p.question_count + ' 题）</option>';
+        }).join('');
+    }
+
+    async function loadCandidates() {
+        const box = document.getElementById('candidate-list');
+        let groups = [];
+        try {
+            const data = await API.get('/exams/candidates/');
+            groups = data.classrooms || [];
+        } catch (err) {
+            groups = [];
+        }
+        state.candidates = groups;
+        if (!groups.length) {
+            box.innerHTML = '<div class="text-muted small">暂无可选的班级学生</div>';
+            return;
+        }
+        // 按班级分组：勾选一个班 = 选中该班所有学生（学生 id 存在 data-students 里）
+        box.innerHTML = groups.map(function (g) {
+            const gid = g.id == null ? 'none' : g.id;
+            const studentIds = (g.students || []).map(function (s) { return s.id; }).join(',');
+            const members = (g.students || []).map(function (s) { return esc(s.name); }).join('、');
+            return '<div class="cand-group border-bottom py-2">'
+                + '<div class="form-check mb-1">'
+                + '<input class="form-check-input cand-class" type="checkbox" value="' + gid + '" '
+                + 'data-students="' + studentIds + '" id="cand-class-' + gid + '">'
+                + '<label class="form-check-label small" for="cand-class-' + gid + '">'
+                + '<b>' + esc(g.name) + '</b>'
+                + (g.subject ? ' <span class="text-muted">· ' + esc(g.subject) + '</span>' : '')
+                + ' <span class="text-muted">（' + (g.students || []).length + ' 人）</span>'
+                + '</label></div>'
+                + '<div class="ps-4 text-muted cand-members" style="font-size:12px">' + members + '</div>'
+                + '</div>';
+        }).join('');
+    }
+
+    function fillForm(item) {
+        document.getElementById('e-title').value = item ? item.title : '';
+        document.getElementById('e-paper').value = item ? item.paper_id : '';
+        document.getElementById('e-desc').value = item ? (item.description || '') : '';
+        document.getElementById('e-start').value = item ? toLocalInput(item.start_time) : '';
+        document.getElementById('e-end').value = item ? toLocalInput(item.end_time) : '';
+        document.getElementById('e-duration').value = item ? item.duration_minutes : 0;
+        document.getElementById('e-pass').value = item && item.pass_score_effective
+            ? item.pass_score_effective : '';
+        document.getElementById('e-attempts').value = item ? item.max_attempts : 1;
+        document.getElementById('e-switch').value = item ? item.max_switch_count : 5;
+        document.getElementById('e-shuffle-q').checked = item ? !!item.shuffle_questions : false;
+        document.getElementById('e-shuffle-o').checked = item ? !!item.shuffle_options : false;
+        document.getElementById('e-resume').checked = item ? !!item.allow_resume : true;
+        document.getElementById('e-detect-switch').checked = item ? !!item.detect_switch : true;
+        document.getElementById('e-detect-paste').checked = item ? !!item.detect_paste : true;
+        document.getElementById('e-auto-submit').checked = item ? !!item.auto_submit_on_limit : false;
+        document.getElementById('e-fullscreen').checked = item ? !!item.fullscreen_required : false;
+        document.getElementById('e-open-all').checked = item ? !!item.open_to_all : true;
+        document.getElementById('participant-wrap').classList.toggle('d-none', !item || item.open_to_all);
+    }
+
+    function prefillParticipants(item) {
+        if (!item || !item.participant_ids) return;
+        const set = new Set(item.participant_ids);
+        document.querySelectorAll('.cand-class').forEach(function (box) {
+            const ids = (box.dataset.students || '').split(',').filter(Boolean).map(Number);
+            box.checked = ids.length > 0 && ids.every(function (id) { return set.has(id); });
+        });
+    }
+
+    async function openEditor(id) {
+        state.editing = id || null;
+        document.getElementById('exam-modal-title').textContent = id ? '编辑考试' : '新建考试';
+        fillForm(null);
+        document.getElementById('participant-wrap').classList.add('d-none');
+        modal.show();
+
+        await Promise.all([loadPapers(), state.candidates.length ? Promise.resolve() : loadCandidates()]);
+        if (id) {
+            try {
+                const item = await API.get('/exams/' + id + '/');
+                fillForm(item);
+                prefillParticipants(item);
+            } catch (err) {
+                UI.error(UI.errorText(err));
+            }
+        }
+    }
+
+    function payload() {
+        // 勾选的每个班展开成该班全部学生 id
+        const participantIds = Array.from(document.querySelectorAll('.cand-class:checked'))
+            .map(function (box) { return box.dataset.students || ''; })
+            .join(',').split(',').filter(Boolean).map(Number)
+            .filter(function (v, i, arr) { return arr.indexOf(v) === i; });
+        const payloadObj = {
+            title: document.getElementById('e-title').value.trim(),
+            paper_id: Number(document.getElementById('e-paper').value) || undefined,
+            description: document.getElementById('e-desc').value,
+            start_time: document.getElementById('e-start').value || null,
+            end_time: document.getElementById('e-end').value || null,
+            duration_minutes: Number(document.getElementById('e-duration').value) || 0,
+            max_attempts: Number(document.getElementById('e-attempts').value) || 1,
+            max_switch_count: Number(document.getElementById('e-switch').value) || 0,
+            shuffle_questions: document.getElementById('e-shuffle-q').checked,
+            shuffle_options: document.getElementById('e-shuffle-o').checked,
+            allow_resume: document.getElementById('e-resume').checked,
+            detect_switch: document.getElementById('e-detect-switch').checked,
+            detect_paste: document.getElementById('e-detect-paste').checked,
+            auto_submit_on_limit: document.getElementById('e-auto-submit').checked,
+            fullscreen_required: document.getElementById('e-fullscreen').checked,
+            open_to_all: document.getElementById('e-open-all').checked,
+            participant_ids: document.getElementById('e-open-all').checked ? [] : participantIds,
+        };
+        const pass = document.getElementById('e-pass').value;
+        payloadObj.pass_score = pass === '' ? null : Number(pass);
+        return payloadObj;
+    }
+
+    document.getElementById('btn-save-exam').addEventListener('click', async function () {
+        const body = payload();
+        if (!state.editing && !body.paper_id) { UI.error('请选择试卷'); return; }
+
+        const btn = this;
+        UI.setBusy(btn, true, '保存中…');
+        try {
+            if (state.editing) {
+                // 编辑时不提交 paper_id（换卷已被服务端在有人作答后禁止）
+                delete body.paper_id;
+                await API.patch('/exams/' + state.editing + '/', body);
+                UI.success('已保存');
+            } else {
+                await API.post('/exams/', body);
+                UI.success('考试已创建（草稿），发布后学生可见');
+            }
+            modal.hide();
+            loadList(); loadStats();
+        } catch (err) {
+            UI.error(UI.errorText(err));
+        } finally {
+            UI.setBusy(btn, false);
+        }
+    });
+
+    document.getElementById('e-open-all').addEventListener('change', function () {
+        document.getElementById('participant-wrap').classList.toggle('d-none', this.checked);
+        if (!this.checked && !state.candidates.length) loadCandidates();
+    });
+
+    /* ---------------- 绑定 ---------------- */
+    document.getElementById('btn-new-exam').addEventListener('click', function () { openEditor(null); });
+    document.getElementById('btn-prev').addEventListener('click', function () { if (page > 1) { page--; loadList(); } });
+    document.getElementById('btn-next').addEventListener('click', function () { if (page < totalPages) { page++; loadList(); } });
+    document.getElementById('btn-reset').addEventListener('click', function () {
+        document.getElementById('f-status').value = '';
+        document.getElementById('f-subject').value = '';
+        document.getElementById('f-keyword').value = '';
+        document.getElementById('f-open').checked = false;
+        page = 1; loadList();
+    });
+    ['f-status', 'f-subject'].forEach(function (id) {
+        document.getElementById(id).addEventListener('change', function () { page = 1; loadList(); });
+    });
+    document.getElementById('f-open').addEventListener('change', function () { page = 1; loadList(); });
+    let timer = null;
+    document.getElementById('f-keyword').addEventListener('input', function () {
+        clearTimeout(timer);
+        timer = setTimeout(function () { page = 1; loadList(); }, 350);
+    });
+
+    loadStats();
+    loadList();
+    loadCandidates();
+})();
+</script>
+{% endblock %}

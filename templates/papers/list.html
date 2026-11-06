@@ -1,0 +1,336 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}试卷与组卷 · AI 在线考试与学情分析系统{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+
+    <div class="page-head d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+        <div>
+            <h1 class="h4 mb-1"><i class="bi bi-file-earmark-text text-primary"></i> 试卷与组卷</h1>
+            <p class="text-muted mb-0 small">
+                手动加题、AI 智能组卷、组卷质量分析、卷面打印导出，都在这里
+            </p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a class="btn btn-brand" href="{% url 'paper-compose-new' %}">
+                <i class="bi bi-magic"></i> 智能组卷
+            </a>
+        </div>
+    </div>
+
+    <!-- ============ 统计 ============ -->
+    <div class="row g-3 mb-4" id="statRow">
+        <div class="col-6 col-lg-3">
+            <div class="stat-card"><div class="stat-chip"><i class="bi bi-collection"></i></div>
+                <div class="stat-value" id="statTotal">—</div><div class="stat-label">试卷总数</div></div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card"><div class="stat-chip chip-teal"><i class="bi bi-send-check"></i></div>
+                <div class="stat-value" id="statPublished">—</div><div class="stat-label">已发布</div></div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card"><div class="stat-chip chip-amber"><i class="bi bi-pencil-square"></i></div>
+                <div class="stat-value" id="statDraft">—</div><div class="stat-label">草稿</div></div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card"><div class="stat-chip chip-purple"><i class="bi bi-stack"></i></div>
+                <div class="stat-value" id="statQuestionUsage">—</div><div class="stat-label">卷内题目累计</div></div>
+        </div>
+    </div>
+
+    <!-- ============ 筛选 ============ -->
+    <div class="card table-card mb-3">
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-12 col-md-4">
+                    <label class="form-label small mb-1">关键字</label>
+                    <input type="search" class="form-control form-control-sm" id="filterKeyword"
+                           placeholder="试卷标题 / 学科 / 说明">
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-1">状态</label>
+                    <select class="form-select form-select-sm" id="filterStatus">
+                        <option value="">全部（不含归档）</option>
+                        <option value="draft">草稿</option>
+                        <option value="published">已发布</option>
+                        <option value="archived">已归档</option>
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-1">学科</label>
+                    <select class="form-select form-select-sm" id="filterSubject">
+                        <option value="">全部</option>
+                        {% for subject in subjects %}
+                            <option value="{{ subject }}">{{ subject }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-1">组卷方式</label>
+                    <select class="form-select form-select-sm" id="filterMode">
+                        <option value="">全部</option>
+                        <option value="manual">手动组卷</option>
+                        <option value="ai">AI 智能组卷</option>
+                        <option value="hybrid">AI + 手动调整</option>
+                    </select>
+                </div>
+                <div class="col-6 col-md-2 d-flex gap-2">
+                    <button class="btn btn-brand btn-sm flex-grow-1" id="btnSearch">
+                        <i class="bi bi-search"></i> 筛选
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" id="btnReset" title="重置">
+                        <i class="bi bi-arrow-counterclockwise"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ 列表 ============ -->
+    <div class="card table-card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-list-ul"></i> 试卷列表</span>
+            <span class="text-muted small" id="listSummary">加载中…</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                <tr>
+                    <th style="min-width: 220px;">试卷</th>
+                    <th class="text-center">状态</th>
+                    <th class="text-center">题量</th>
+                    <th class="text-center">总分</th>
+                    <th class="text-center">时长</th>
+                    <th class="text-center">难度</th>
+                    <th class="text-center">组卷方式</th>
+                    <th class="text-end" style="min-width: 190px;">操作</th>
+                </tr>
+                </thead>
+                <tbody id="paperRows">
+                <tr><td colspan="8" class="text-center text-muted py-5">
+                    <span class="spinner-border spinner-border-sm me-2"></span>加载中…
+                </td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span class="text-muted small" id="pageInfo"></span>
+            <nav><ul class="pagination pagination-sm mb-0" id="pager"></ul></nav>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(() => {
+    const state = { page: 1, keyword: "", status: "", subject: "", mode: "", count: 0 };
+
+    const STATUS_CLASS = { draft: "badge-soft-amber", published: "badge-soft-teal", archived: "badge-soft-gray" };
+    const MODE_LABEL = { manual: "手动", ai: "AI 智能", hybrid: "AI+手动" };
+    const DIFFICULTY_LABEL = { 1: "简单", 2: "中等", 3: "困难", 4: "挑战" };
+
+    const esc = (text) => String(text ?? "").replace(/[&<>"']/g,
+        (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+
+    // ---------------- 统计 ----------------
+    async function loadStats() {
+        try {
+            const data = await API.get("/papers/statistics/");
+            const byStatus = Object.fromEntries((data.by_status || []).map(r => [r.value, r.count]));
+            document.getElementById("statTotal").textContent = data.total;
+            document.getElementById("statPublished").textContent = byStatus.published || 0;
+            document.getElementById("statDraft").textContent = byStatus.draft || 0;
+            document.getElementById("statQuestionUsage").textContent = data.question_usage_total;
+        } catch (err) {
+            UI.error(err);
+        }
+    }
+
+    // ---------------- 列表 ----------------
+    function buildQuery() {
+        const params = new URLSearchParams();
+        if (state.keyword) params.set("search", state.keyword);
+        if (state.status) params.set("status", state.status);
+        if (state.subject) params.set("subject", state.subject);
+        if (state.mode) params.set("generation_mode", state.mode);
+        params.set("page", state.page);
+        return params.toString();
+    }
+
+    async function loadList() {
+        const tbody = document.getElementById("paperRows");
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-5">' +
+            '<span class="spinner-border spinner-border-sm me-2"></span>加载中…</td></tr>';
+        try {
+            const data = await API.get("/papers/?" + buildQuery());
+            state.count = data.count;
+            renderRows(data.results || []);
+            renderPager(data);
+            document.getElementById("listSummary").textContent = `共 ${data.count} 份`;
+        } catch (err) {
+            UI.error(err);
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-5">加载失败</td></tr>';
+        }
+    }
+
+    function renderRows(rows) {
+        const tbody = document.getElementById("paperRows");
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-5">' +
+                '<i class="bi bi-inbox fs-3 d-block mb-2"></i>还没有试卷，点右上角「智能组卷」试试</td></tr>';
+            return;
+        }
+        tbody.innerHTML = rows.map(row => {
+            const isDraft = row.status === "draft";
+            const canDelete = row.status !== "published";
+            return `<tr>
+                <td>
+                    <a class="fw-semibold text-decoration-none"
+                       href="/papers/${row.id}/compose/">${esc(row.title)}</a>
+                    <div class="text-muted small">
+                        ${esc(row.subject || "未指定学科")} · ${row.section_count} 个大题
+                        · ${esc(row.created_by_name || "—")}
+                    </div>
+                </td>
+                <td class="text-center">
+                    <span class="badge ${STATUS_CLASS[row.status] || "badge-soft-gray"}">
+                        ${esc(row.status_display)}</span>
+                </td>
+                <td class="text-center">${row.question_count}</td>
+                <td class="text-center fw-semibold">${row.total_score}</td>
+                <td class="text-center text-muted">${row.duration_minutes}′</td>
+                <td class="text-center">
+                    <span title="目标 ${row.target_difficulty} / 实际 ${row.actual_difficulty}">
+                        ${DIFFICULTY_LABEL[Math.round(row.actual_difficulty)] || "—"}
+                        <span class="text-muted small">(${row.actual_difficulty})</span>
+                    </span>
+                </td>
+                <td class="text-center">
+                    <span class="badge ${row.generation_mode === "ai" ? "badge-soft-purple" : "badge-soft-gray"}">
+                        ${MODE_LABEL[row.generation_mode] || row.generation_mode_display}</span>
+                </td>
+                <td class="text-end">
+                    <div class="btn-group btn-group-sm">
+                        <a class="btn btn-outline-primary" href="/papers/${row.id}/compose/"
+                           title="打开组卷工作台"><i class="bi bi-sliders"></i></a>
+                        <button class="btn btn-outline-secondary" data-act="export" data-id="${row.id}"
+                                title="导出卷面"><i class="bi bi-printer"></i></button>
+                        <button class="btn btn-outline-secondary" data-act="clone" data-id="${row.id}"
+                                title="复制一份"><i class="bi bi-files"></i></button>
+                        ${isDraft
+                            ? `<button class="btn btn-outline-success" data-act="publish" data-id="${row.id}"
+                                       title="发布"><i class="bi bi-send-check"></i></button>`
+                            : `<button class="btn btn-outline-warning" data-act="draft" data-id="${row.id}"
+                                       title="退回草稿"><i class="bi bi-arrow-counterclockwise"></i></button>`}
+                        <button class="btn btn-outline-danger" data-act="delete" data-id="${row.id}"
+                                ${canDelete ? "" : "disabled"} title="删除">
+                            <i class="bi bi-trash3"></i></button>
+                    </div>
+                </td>
+            </tr>`;
+        }).join("");
+    }
+
+    function renderPager(data) {
+        const pager = document.getElementById("pager");
+        const totalPages = data.total_pages || 1;
+        document.getElementById("pageInfo").textContent =
+            `第 ${data.page} / ${totalPages} 页`;
+        if (totalPages <= 1) { pager.innerHTML = ""; return; }
+
+        const items = [];
+        const addPage = (page, label, disabled, active) => {
+            items.push(`<li class="page-item ${disabled ? "disabled" : ""} ${active ? "active" : ""}">
+                <a class="page-link" href="#" data-page="${page}">${label}</a></li>`);
+        };
+        addPage(data.page - 1, "&laquo;", data.page <= 1, false);
+        for (let page = 1; page <= totalPages; page++) {
+            if (totalPages > 7 && Math.abs(page - data.page) > 2 && page !== 1 && page !== totalPages) {
+                if (items[items.length - 1] !== "<li class=\"page-item disabled\"><span class=\"page-link\">…</span></li>") {
+                    items.push('<li class="page-item disabled"><span class="page-link">…</span></li>');
+                }
+                continue;
+            }
+            addPage(page, page, false, page === data.page);
+        }
+        addPage(data.page + 1, "&raquo;", data.page >= totalPages, false);
+        pager.innerHTML = items.join("");
+    }
+
+    // ---------------- 行内操作 ----------------
+    async function handleAction(act, id) {
+        try {
+            if (act === "export") {
+                window.open(`/api/v1/papers/${id}/export/?file_format=html`, "_blank");
+                return;
+            }
+            if (act === "clone") {
+                const data = await API.post(`/papers/${id}/clone/`, {});
+                UI.toast(`已复制为《${data.title}》`, "success");
+                loadList(); loadStats();
+                return;
+            }
+            if (act === "publish" || act === "draft") {
+                const status = act === "publish" ? "published" : "draft";
+                await API.post(`/papers/${id}/status/`, { status });
+                UI.toast(act === "publish" ? "已发布" : "已退回草稿", "success");
+                loadList(); loadStats();
+                return;
+            }
+            if (act === "delete") {
+                if (!confirm("确定删除这份试卷？删除后不可恢复。")) return;
+                await API.del(`papers/${id}/`);
+                UI.toast("已删除", "success");
+                loadList(); loadStats();
+            }
+        } catch (err) {
+            UI.error(err);
+        }
+    }
+
+    // ---------------- 事件绑定 ----------------
+    document.getElementById("btnSearch").addEventListener("click", () => {
+        state.page = 1;
+        state.keyword = document.getElementById("filterKeyword").value.trim();
+        state.status = document.getElementById("filterStatus").value;
+        state.subject = document.getElementById("filterSubject").value;
+        state.mode = document.getElementById("filterMode").value;
+        loadList();
+    });
+
+    document.getElementById("btnReset").addEventListener("click", () => {
+        ["filterKeyword", "filterStatus", "filterSubject", "filterMode"]
+            .forEach(id => { document.getElementById(id).value = ""; });
+        Object.assign(state, { page: 1, keyword: "", status: "", subject: "", mode: "" });
+        loadList();
+    });
+
+    document.getElementById("filterKeyword").addEventListener("keydown", (event) => {
+        if (event.key === "Enter") document.getElementById("btnSearch").click();
+    });
+
+    document.getElementById("paperRows").addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-act]");
+        if (button) handleAction(button.dataset.act, button.dataset.id);
+    });
+
+    document.getElementById("pager").addEventListener("click", (event) => {
+        const link = event.target.closest("a[data-page]");
+        if (!link) return;
+        event.preventDefault();
+        const page = Number(link.dataset.page);
+        if (page < 1 || page > Math.ceil(state.count / 10)) return;
+        state.page = page;
+        loadList();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    loadStats();
+    loadList();
+})();
+</script>
+{% endblock %}

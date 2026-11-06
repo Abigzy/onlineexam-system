@@ -1,0 +1,63 @@
+%% 管理端增量 · 时序图
+%% 对应文档：docs/管理端增量设计.md §6
+
+sequenceDiagram
+    autonumber
+    actor A as 管理员浏览器
+    participant LP as LoginPageView
+    participant BE as UsernameOrEmailBackend
+    participant MW as InactiveSessionGuardMiddleware
+    participant HV as HomeView
+    participant DB as DB(MySQL)
+    participant DASH as ManageDashboardPageView
+    participant SVC as OverviewService
+    participant UL as ManageUserListPageView
+    participant API as UserViewSet
+    participant US as UserService
+
+    A->>LP: POST /login/ {username, password}
+    LP->>BE: authenticate()
+    BE->>DB: resolve_user() + check_password() + user_can_authenticate()
+    alt 账号已停用（is_active=False）
+        BE-->>LP: None
+        LP->>DB: resolve_user() 复核 + check_password()
+        LP-->>A: 表单错误「该账号已被停用，请联系管理员」(AC-26)
+    else 正常
+        BE-->>LP: user
+        LP->>US: record_login(user, ip)
+        LP-->>A: 302 /manage/（get_success_url：is_admin → manage-dashboard）
+    end
+
+    A->>MW: GET /manage/
+    MW->>DB: Session 载入 request.user，复查 is_active
+    MW-->>A: 通过（启用）／登出 + 302 /login/（已停用，AC-25）
+
+    A->>HV: GET /
+    HV-->>A: 302 /manage/（HomeView.get：is_admin → redirect，AC-08）
+
+    A->>DASH: GET /manage/
+    DASH->>DASH: AdminConsoleMixin 校验 role / is_superuser
+    DASH->>SVC: build()
+    SVC->>DB: 10 条单表 aggregate（users / classroom / questions / papers / exam / attempt / ai）
+    SVC-->>DASH: {users, org, content, teaching, ai, options}
+    DASH-->>A: 200 dashboard.html（4 组指标卡 + 2 图表 + AI 用量表；空库全 0）
+
+    A->>UL: GET /manage/users/?search=张&role=teacher&page=1
+    UL->>DB: UserFilter(GET, User.objects.all()) + Paginator
+    UL-->>A: 200 manage_list.html（服务端渲染，1 次请求，AC-36）
+
+    A->>API: POST /api/v1/users/{id}/reset-password/ {"mode":"random"}
+    API->>API: IsAdmin 校验
+    API->>US: admin_reset_password(user, None)
+    US->>US: generate_password() → validate_password(plain, user)
+    US->>DB: set_password + save(update_fields=["password"])
+    US->>DB: OutstandingToken → RefreshToken.blacklist()
+    US-->>API: "Xy7#mK2pQr9t"
+    API-->>A: 200 {code:0, data:{password:...}, message:"密码已重置"}
+    Note over A: 模态展示一次 + 复制；关闭后不再展示（AC-19/AC-21）
+
+    A->>API: POST /api/v1/users/{id}/toggle-active/（二次确认后）
+    API->>API: 不能停用自己(10010) / 最后一个启用管理员(10012)
+    API->>DB: is_active = False
+    API-->>A: 200 {data:{is_active:false}, message:"账号已停用"}
+    Note over A,DB: 该用户下次页面请求 → 中间件登出+提示(AC-25)；<br/>旧 JWT → SimpleJWT 校验 is_active → 401(AC-28)

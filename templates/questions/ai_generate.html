@@ -1,0 +1,451 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}AI 智能出题 · 题库{% endblock %}
+
+{% block extra_css %}
+<style>
+    .draft-stem { width: 100%; }
+    .draft-option { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+    .draft-option .label-box { width: 54px; flex: 0 0 54px; text-align: center; font-weight: 700; }
+    .warn-line { font-size: 12px; color: #b45309; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">AI 智能出题</h4>
+            <div class="text-muted small">
+                输入知识点或粘贴教材段落 → 生成草稿 → 人工确认后入库
+                <span class="badge bg-light text-secondary border ms-1" id="provider-badge">检测中…</span>
+            </div>
+        </div>
+        <a href="{% url 'question-bank' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i> 返回题库
+        </a>
+    </div>
+</div>
+
+<div class="container py-4">
+    <div class="row g-4">
+        <!-- 生成条件 -->
+        <div class="col-lg-4">
+            <div class="card sticky-lg-top" style="top: 88px;">
+                <div class="card-header"><i class="bi bi-sliders text-primary me-1"></i> 生成条件</div>
+                <div class="card-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small">学科 / 课程</label>
+                        <input type="text" class="form-control form-control-sm" id="g-subject"
+                               placeholder="如：数据结构">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small">知识点（逗号分隔）</label>
+                        <input type="text" class="form-control form-control-sm" id="g-knowledge"
+                               placeholder="二叉树, 图的遍历, 最短路径">
+                        <div class="form-text">与下方素材至少填一个。</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small">题型（可多选）</label>
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for value, label in question_types %}
+                                <div class="form-check form-check-inline me-0">
+                                    <input class="form-check-input g-type" type="checkbox" value="{{ value }}"
+                                           id="gt-{{ value }}" {% if value == 'single' %}checked{% endif %}>
+                                    <label class="form-check-label small" for="gt-{{ value }}">{{ label }}</label>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label small">难度倾向</label>
+                            <select class="form-select form-select-sm" id="g-difficulty">
+                                <option value="1">简单</option>
+                                <option value="2" selected>中等</option>
+                                <option value="3">困难</option>
+                                <option value="4">挑战</option>
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">题量</label>
+                            <input type="number" class="form-control form-control-sm" id="g-count"
+                                   value="5" min="1" max="20">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small">教材素材（可选）</label>
+                        <textarea class="form-control form-control-sm" id="g-source" rows="7"
+                                  placeholder="粘贴一段教材 / 讲义文字，AI 会从中提炼考点。&#10;留空则仅依据知识点名称命题。"></textarea>
+                    </div>
+
+                    <button class="btn btn-brand w-100" id="btn-generate">
+                        <i class="bi bi-magic me-1"></i> 生成草稿
+                    </button>
+                    <button class="btn btn-outline-primary w-100 mt-2" id="btn-save-all" disabled>
+                        <i class="bi bi-database-add me-1"></i> 采纳全部并入库
+                    </button>
+                    <div class="form-text text-center mt-2" id="save-hint">先点「生成草稿」</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 草稿区 -->
+        <div class="col-lg-8">
+            <div class="d-flex flex-wrap justify-content-between align-items-center mb-2 gap-2">
+                <h6 class="fw-bold mb-0">
+                    草稿（<span id="draft-count">0</span>）
+                    <span class="text-muted fw-normal small">已采纳 <span id="accepted-count">0</span> 道</span>
+                </h6>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" id="btn-accept-all">全部采纳</button>
+                    <button class="btn btn-sm btn-outline-secondary" id="btn-clear">清空</button>
+                </div>
+            </div>
+            <div id="drafts">
+                <div class="empty-state">
+                    <i class="bi bi-magic"></i>
+                    左侧填好条件，点「生成草稿」开始
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(function () {
+    const CHOICE_TYPES = ['single', 'multiple', 'judge'];
+    const draftArea = document.getElementById('drafts');
+    let drafts = [];           // 当前草稿（含采纳状态）
+    let meta = {};
+
+    /* ---------------- Provider 状态 ---------------- */
+    (async function loadProvider() {
+        try {
+            const data = await API.get('/ai/providers/');
+            const badge = document.getElementById('provider-badge');
+            if (data.active_is_mock) {
+                badge.className = 'badge bg-warning-subtle text-warning-emphasis ms-1';
+                badge.textContent = '本地模拟模式（未配置 API Key）';
+                badge.title = '在 .env 里填 DEEPSEEK_API_KEY 并重启服务即可调用真实大模型';
+            } else {
+                const current = data.providers.find(p => p.is_current) || {};
+                badge.className = 'badge bg-success-subtle text-success-emphasis ms-1';
+                badge.textContent = (current.display_name || data.current) + ' · ' + (current.model || '');
+            }
+        } catch (err) {
+            document.getElementById('provider-badge').textContent = '状态未知';
+        }
+    })();
+
+    /* ---------------- 生成 ---------------- */
+    document.getElementById('btn-generate').addEventListener('click', async (event) => {
+    // currentTarget 在 await 之后会被置空，先存下来，否则按钮会卡在加载态
+    const btn = event.currentTarget;
+        const knowledge = document.getElementById('g-knowledge').value
+            .split(/[,，、]/).map(s => s.trim()).filter(Boolean);
+        const types = Array.from(document.querySelectorAll('.g-type:checked')).map(el => el.value);
+        const sourceText = document.getElementById('g-source').value.trim();
+
+        if (!knowledge.length && !sourceText) {
+            UI.error('请至少填写知识点或粘贴教材素材');
+            return;
+        }
+        if (!types.length) { UI.error('请至少选择一种题型'); return; }
+
+        UI.setBusy(btn, true, 'AI 生成中…');
+        try {
+            const data = await API.post('/questions/ai-generate/', {
+                subject: document.getElementById('g-subject').value.trim(),
+                knowledge_points: knowledge,
+                question_types: types,
+                difficulty: parseInt(document.getElementById('g-difficulty').value, 10),
+                count: parseInt(document.getElementById('g-count').value, 10) || 5,
+                source_text: sourceText,
+            });
+            drafts = data.drafts.map(d => ({ ...d, accepted: true }));
+            meta = data.meta;
+            renderDrafts();
+            UI.success(data.meta.is_mock
+                ? '已生成 ' + drafts.length + ' 道草稿（本地模拟）'
+                : 'AI 已生成 ' + drafts.length + ' 道草稿');
+        } catch (err) {
+            UI.error(UI.errorText(err));
+        } finally {
+            UI.setBusy(btn, false);
+        }
+    });
+
+    /* ---------------- 渲染 ---------------- */
+    function renderDrafts() {
+        document.getElementById('draft-count').textContent = drafts.length;
+        updateAcceptedCount();
+
+        if (!drafts.length) {
+            draftArea.innerHTML = '<div class="empty-state"><i class="bi bi-magic"></i>'
+                + '左侧填好条件，点「生成草稿」开始</div>';
+            document.getElementById('btn-save-all').disabled = true;
+            document.getElementById('save-hint').textContent = '先点「生成草稿」';
+            return;
+        }
+
+        draftArea.innerHTML = drafts.map((draft, index) => draftCardHtml(draft, index)).join('');
+        bindDraftEvents();
+        document.getElementById('btn-save-all').disabled = false;
+        document.getElementById('save-hint').textContent =
+            '共 ' + drafts.length + ' 道，采纳 ' + acceptedCount() + ' 道后入库';
+    }
+
+    function draftCardHtml(draft, index) {
+        const isChoice = CHOICE_TYPES.includes(draft.type);
+        const optionsHtml = (draft.options || []).map((option, oi) => `
+            <div class="draft-option">
+                <input class="form-check-input d-opt-correct" type="checkbox" data-oi="${oi}"
+                       ${option.is_correct ? 'checked' : ''}>
+                <input type="text" class="form-control form-control-sm label-box d-opt-label"
+                       value="${escapeAttr(option.label)}" data-oi="${oi}">
+                <input type="text" class="form-control form-control-sm d-opt-content"
+                       value="${escapeAttr(option.content)}" data-oi="${oi}">
+            </div>`).join('');
+
+        const warnings = (draft.warnings && draft.warnings.length)
+            ? '<div class="warn-line mt-1"><i class="bi bi-exclamation-triangle"></i> '
+              + draft.warnings.map(escapeHtml).join('；') + '</div>'
+            : '';
+
+        return `
+        <div class="draft-card ${draft.accepted ? 'is-accepted' : ''}" data-index="${index}">
+            <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                <div class="form-check">
+                    <input class="form-check-input d-accept" type="checkbox" data-index="${index}"
+                           ${draft.accepted ? 'checked' : ''}>
+                    <label class="form-check-label small fw-semibold">第 ${index + 1} 题 · 采纳</label>
+                </div>
+                <div class="d-flex gap-1">
+                    <span class="type-tag type-${draft.type}">${LABELS.TYPE[draft.type] || draft.type}</span>
+                    <button class="btn btn-sm btn-outline-danger py-0 px-2 d-remove" data-index="${index}">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="row g-2 mb-2">
+                <div class="col-4 col-md-3">
+                    <label class="form-label small mb-0">题型</label>
+                    <select class="form-select form-select-sm d-type" data-index="${index}">
+                        ${Object.keys(LABELS.TYPE).map(t =>
+                            `<option value="${t}" ${t === draft.type ? 'selected' : ''}>${LABELS.TYPE[t]}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+                <div class="col-4 col-md-3">
+                    <label class="form-label small mb-0">难度</label>
+                    <select class="form-select form-select-sm d-difficulty" data-index="${index}">
+                        ${[1, 2, 3, 4].map(level =>
+                            `<option value="${level}" ${level == draft.difficulty ? 'selected' : ''}>${LABELS.DIFFICULTY[level]}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+                <div class="col-4 col-md-2">
+                    <label class="form-label small mb-0">分值</label>
+                    <input type="number" step="0.5" class="form-control form-control-sm d-score"
+                           data-index="${index}" value="${draft.score}">
+                </div>
+                <div class="col-12 col-md-4">
+                    <label class="form-label small mb-0">知识点</label>
+                    <input type="text" class="form-control form-control-sm d-kp" data-index="${index}"
+                           value="${escapeAttr((draft.knowledge_point_names || []).join(','))}">
+                </div>
+            </div>
+
+            <label class="form-label small mb-0">题干</label>
+            <textarea class="form-control form-control-sm draft-stem mb-2 d-stem"
+                      data-index="${index}" rows="2">${escapeHtml(draft.stem)}</textarea>
+
+            ${isChoice ? `<label class="form-label small mb-0">选项</label>${optionsHtml}` : ''}
+
+            <label class="form-label small mb-0 mt-2">参考答案</label>
+            <textarea class="form-control form-control-sm mb-2 d-answer" data-index="${index}"
+                      rows="${isChoice ? 1 : 3}">${escapeHtml(draft.reference_answer || '')}</textarea>
+
+            <label class="form-label small mb-0">解析</label>
+            <textarea class="form-control form-control-sm d-analysis" data-index="${index}"
+                      rows="2">${escapeHtml(draft.analysis || '')}</textarea>
+
+            ${warnings}
+        </div>`;
+    }
+
+    /* ---------------- 草稿交互 ---------------- */
+    function bindDraftEvents() {
+        draftArea.querySelectorAll('.d-accept').forEach(box => {
+            box.addEventListener('change', () => {
+                drafts[parseInt(box.dataset.index, 10)].accepted = box.checked;
+                box.closest('.draft-card').classList.toggle('is-accepted', box.checked);
+                updateAcceptedCount();
+            });
+        });
+
+        draftArea.querySelectorAll('.d-remove').forEach(btn => {
+            btn.addEventListener('click', () => {
+                drafts.splice(parseInt(btn.dataset.index, 10), 1);
+                renderDrafts();
+            });
+        });
+
+        draftArea.querySelectorAll('.d-type').forEach(select => {
+            select.addEventListener('change', () => {
+                const index = parseInt(select.dataset.index, 10);
+                drafts[index].type = select.value;
+                // 题型变了，选项结构也要跟着变
+                if (!CHOICE_TYPES.includes(select.value)) {
+                    drafts[index].options = [];
+                } else if (!(drafts[index].options || []).length) {
+                    drafts[index].options = [
+                        { label: 'A', content: '', is_correct: false },
+                        { label: 'B', content: '', is_correct: false },
+                    ];
+                }
+                renderDrafts();
+            });
+        });
+
+        draftArea.querySelectorAll('.d-difficulty').forEach(select => {
+            select.addEventListener('change', () => {
+                drafts[parseInt(select.dataset.index, 10)].difficulty = parseInt(select.value, 10);
+            });
+        });
+        draftArea.querySelectorAll('.d-score').forEach(input => {
+            input.addEventListener('change', () => {
+                drafts[parseInt(input.dataset.index, 10)].score = parseFloat(input.value) || 2;
+            });
+        });
+        draftArea.querySelectorAll('.d-stem').forEach(area => {
+            area.addEventListener('input', () => {
+                drafts[parseInt(area.dataset.index, 10)].stem = area.value;
+            });
+        });
+        draftArea.querySelectorAll('.d-answer').forEach(area => {
+            area.addEventListener('input', () => {
+                drafts[parseInt(area.dataset.index, 10)].reference_answer = area.value;
+            });
+        });
+        draftArea.querySelectorAll('.d-analysis').forEach(area => {
+            area.addEventListener('input', () => {
+                drafts[parseInt(area.dataset.index, 10)].analysis = area.value;
+            });
+        });
+        draftArea.querySelectorAll('.d-kp').forEach(input => {
+            input.addEventListener('input', () => {
+                drafts[parseInt(input.dataset.index, 10)].knowledge_point_names =
+                    input.value.split(/[,，、]/).map(s => s.trim()).filter(Boolean);
+            });
+        });
+
+        draftArea.querySelectorAll('.d-opt-content').forEach(input => {
+            input.addEventListener('input', () => {
+                const card = input.closest('.draft-card');
+                const index = parseInt(card.dataset.index, 10);
+                drafts[index].options[parseInt(input.dataset.oi, 10)].content = input.value;
+            });
+        });
+        draftArea.querySelectorAll('.d-opt-label').forEach(input => {
+            input.addEventListener('input', () => {
+                const card = input.closest('.draft-card');
+                const index = parseInt(card.dataset.index, 10);
+                drafts[index].options[parseInt(input.dataset.oi, 10)].label = input.value.toUpperCase();
+            });
+        });
+        draftArea.querySelectorAll('.d-opt-correct').forEach(box => {
+            box.addEventListener('change', () => {
+                const card = box.closest('.draft-card');
+                const index = parseInt(card.dataset.index, 10);
+                const options = drafts[index].options;
+                const oi = parseInt(box.dataset.oi, 10);
+                if (['single', 'judge'].includes(drafts[index].type) && box.checked) {
+                    options.forEach((option, i) => { option.is_correct = (i === oi); });
+                    card.querySelectorAll('.d-opt-correct').forEach((other, i) => { other.checked = (i === oi); });
+                } else {
+                    options[oi].is_correct = box.checked;
+                }
+            });
+        });
+    }
+
+    function acceptedCount() { return drafts.filter(d => d.accepted).length; }
+
+    function updateAcceptedCount() {
+        document.getElementById('accepted-count').textContent = acceptedCount();
+        document.getElementById('save-hint').textContent =
+            '共 ' + drafts.length + ' 道，采纳 ' + acceptedCount() + ' 道后入库';
+    }
+
+    document.getElementById('btn-accept-all').addEventListener('click', () => {
+        drafts.forEach(d => { d.accepted = true; });
+        renderDrafts();
+    });
+    document.getElementById('btn-clear').addEventListener('click', () => {
+        if (!drafts.length || confirm('清空当前所有草稿？')) { drafts = []; renderDrafts(); }
+    });
+
+    /* ---------------- 批量入库 ---------------- */
+    document.getElementById('btn-save-all').addEventListener('click', async (event) => {
+    // currentTarget 在 await 之后会被置空，先存下来，否则按钮会卡在加载态
+    const btn = event.currentTarget;
+        const items = drafts.filter(d => d.accepted);
+        if (!items.length) { UI.error('请至少采纳一道题'); return; }
+
+        UI.setBusy(btn, true, '入库中…');
+        try {
+            const result = await API.post('/questions/batch/', {
+                items: items.map(d => ({
+                    type: d.type,
+                    stem: d.stem,
+                    difficulty: d.difficulty,
+                    score: d.score,
+                    options: CHOICE_TYPES.includes(d.type) ? d.options : [],
+                    reference_answer: d.reference_answer || '',
+                    analysis: d.analysis || '',
+                    knowledge_point_names: d.knowledge_point_names || [],
+                })),
+                subject: document.getElementById('g-subject').value.trim(),
+                source: 'ai',
+                is_reviewed: true,
+            });
+
+            let message = '成功入库 ' + result.created_count + ' 道题';
+            if (result.errors && result.errors.length) {
+                message += '，' + result.errors.length + ' 道失败：'
+                    + result.errors.map(e => '第' + (e.index + 1) + '道 ' + e.error).join('；');
+            }
+            UI.success(message);
+
+            // 已入库的草稿从列表里移除
+            drafts = drafts.filter(d => !d.accepted);
+            renderDrafts();
+            if (!drafts.length && !result.errors.length) {
+                setTimeout(() => { location.href = '/question-bank/'; }, 900);
+            }
+        } catch (err) {
+            UI.error(UI.errorText(err));
+        } finally {
+            UI.setBusy(btn, false);
+        }
+    });
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text == null ? '' : String(text);
+        return div.innerHTML;
+    }
+    function escapeAttr(text) { return escapeHtml(text).replace(/"/g, '&quot;'); }
+})();
+</script>
+{% endblock %}

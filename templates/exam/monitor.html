@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}考试监控 · {{ exam_title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .prog-mini { height: 6px; border-radius: 999px; background: #eef2f7; overflow: hidden; }
+    .prog-mini > span { display: block; height: 100%; background: linear-gradient(90deg, var(--brand-500), var(--accent-500)); }
+    .risk-row { background: #fff7f7; }
+    .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block;
+                box-shadow: 0 0 0 3px rgba(16,185,129,.18); animation: pulse 1.6s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">{{ exam_title }}</h4>
+            <div class="text-muted small">
+                <span class="live-dot"></span> 每 10 秒自动刷新 · 数据来自服务端
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <span class="badge badge-soft badge-soft-teal" id="exam-status">—</span>
+            <button class="btn btn-outline-secondary btn-sm" id="btn-refresh">
+                <i class="bi bi-arrow-clockwise me-1"></i> 立即刷新
+            </button>
+            <a href="{% url 'exam-list' %}" class="btn btn-outline-secondary btn-sm">返回列表</a>
+        </div>
+    </div>
+</div>
+
+<div class="container py-4">
+
+    <!-- 概览 -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-2"><div class="stat-card"><div class="stat-value" id="ov-applicants">—</div><div class="stat-label">应考人数</div></div></div>
+        <div class="col-6 col-lg-2"><div class="stat-card"><div class="stat-value" id="ov-started">—</div><div class="stat-label">已开始</div></div></div>
+        <div class="col-6 col-lg-2"><div class="stat-card"><div class="stat-value text-success" id="ov-progress">—</div><div class="stat-label">答题中</div></div></div>
+        <div class="col-6 col-lg-2"><div class="stat-card"><div class="stat-value" id="ov-submitted">—</div><div class="stat-label">已交卷</div></div></div>
+        <div class="col-6 col-lg-2"><div class="stat-card"><div class="stat-value" id="ov-timeout">—</div><div class="stat-label">超时</div></div></div>
+        <div class="col-6 col-lg-2"><div class="stat-card"><div class="stat-value" id="ov-notstarted">—</div><div class="stat-label">未开始</div></div></div>
+    </div>
+
+    <!-- 行为预警 -->
+    <div class="card border-0 shadow-sm mb-4" style="border-radius:16px">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0"><i class="bi bi-shield-exclamation text-danger me-1"></i> 行为预警</h6>
+                <div class="small text-muted">
+                    切屏累计 <b id="be-switch">0</b> 次 · 粘贴累计 <b id="be-paste">0</b> 次 ·
+                    上限 <b id="be-threshold">—</b> 次 · 嫌疑 <b class="text-danger" id="be-flagged">0</b> 人
+                </div>
+            </div>
+            <div id="flagged-list" class="small text-muted">暂无违规嫌疑</div>
+        </div>
+    </div>
+
+    <!-- 明细表 -->
+    <div class="table-card">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 p-3 border-bottom">
+            <div class="btn-group btn-group-sm" id="status-tabs">
+                <button class="btn btn-outline-secondary active" data-status="">全部</button>
+                <button class="btn btn-outline-secondary" data-status="in_progress">答题中</button>
+                <button class="btn btn-outline-secondary" data-status="submitted">已交卷</button>
+                <button class="btn btn-outline-secondary" data-status="timeout">超时</button>
+            </div>
+            <div class="d-flex gap-2">
+                <input type="text" class="form-control form-control-sm" id="f-keyword"
+                       placeholder="搜索姓名 / 学号" style="width:200px">
+                <button class="btn btn-outline-danger btn-sm" id="btn-suspicious">只看嫌疑</button>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>考生</th>
+                        <th>状态</th>
+                        <th style="min-width:150px">作答进度</th>
+                        <th class="text-center">剩余时间</th>
+                        <th class="text-center">得分</th>
+                        <th class="text-center">切屏</th>
+                        <th class="text-center">粘贴</th>
+                        <th style="min-width:130px">开始时间</th>
+                    </tr>
+                </thead>
+                <tbody id="attempt-body">
+                    <tr><td colspan="8" class="text-center text-muted py-5">加载中…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(function () {
+    'use strict';
+
+    const EXAM_ID = {{ exam_id }};
+    const STATUS_BADGE = {
+        in_progress: 'badge-soft-teal', submitted: 'badge-soft-amber',
+        auto_graded: 'badge-soft-purple', reviewing: 'badge-soft-purple',
+        graded: 'badge-soft-purple', timeout: 'badge-soft-red',
+    };
+    let currentStatus = '';
+    let onlySuspicious = false;
+    let timer = null;
+
+    function esc(text) {
+        return String(text === null || text === undefined ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function fmtSeconds(sec) {
+        sec = Math.max(0, Number(sec || 0));
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = sec % 60;
+        const pad = function (n) { return String(n).padStart(2, '0'); };
+        return h > 0 ? h + ':' + pad(m) + ':' + pad(s) : pad(m) + ':' + pad(s);
+    }
+
+    async function load() {
+        let data;
+        try {
+            data = await API.get('/exams/' + EXAM_ID + '/attempts/', {
+                status: currentStatus, keyword: document.getElementById('f-keyword').value.trim(),
+            });
+        } catch (err) {
+            document.getElementById('attempt-body').innerHTML =
+                '<tr><td colspan="8" class="text-center text-danger py-5">' + esc(UI.errorText(err)) + '</td></tr>';
+            return;
+        }
+
+        const ov = data.overview;
+        // 兜底用「—」而不是空串：文案缺失时宁可显示"未知"，也不要让徽章变成一块空白
+        // （BUG-04 —— 后端曾漏返回 computed_status_display，页面就静默空了一块）
+        document.getElementById('exam-status').textContent = ov.computed_status_display || '—';
+        const badge = STATUS_BADGE[ov.computed_status] || 'badge-soft-gray';
+        document.getElementById('exam-status').className = 'badge badge-soft ' + badge;
+
+        document.getElementById('ov-applicants').textContent = ov.applicants;
+        document.getElementById('ov-started').textContent = ov.started;
+        document.getElementById('ov-progress').textContent = ov.in_progress;
+        document.getElementById('ov-submitted').textContent = ov.submitted;
+        document.getElementById('ov-timeout').textContent = ov.timeout;
+        document.getElementById('ov-notstarted').textContent = ov.not_started;
+
+        const be = ov.behavior || {};
+        document.getElementById('be-switch').textContent = be.switch_total || 0;
+        document.getElementById('be-paste').textContent = be.paste_total || 0;
+        document.getElementById('be-threshold').textContent = be.max_switch_count;
+        document.getElementById('be-flagged').textContent = be.flagged_count || 0;
+
+        const flaggedBox = document.getElementById('flagged-list');
+        if (be.flagged && be.flagged.length) {
+            flaggedBox.innerHTML = be.flagged.map(function (row) {
+                return '<span class="badge badge-soft badge-soft-red me-1 mb-1">'
+                    + esc(row.student_name) + ' 切屏 ' + row.switch_count + ' 次</span>';
+            }).join('');
+        } else {
+            flaggedBox.textContent = '暂无违规嫌疑';
+        }
+
+        let rows = data.results;
+        if (onlySuspicious) rows = rows.filter(function (row) { return row.suspicious; });
+
+        const tbody = document.getElementById('attempt-body');
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-5">'
+                + '还没有人开始作答</td></tr>';
+            return;
+        }
+        tbody.innerHTML = rows.map(rowHtml).join('');
+    }
+
+    function rowHtml(row) {
+        const prog = row.progress || { answered: 0, total: 0, percent: 0 };
+        const badge = STATUS_BADGE[row.status] || 'badge-soft-gray';
+        const scoreText = row.status === 'graded' || row.status === 'auto_graded'
+            ? (row.score + ' / ' + row.total_score) : '待判分';
+        return '<tr class="' + (row.suspicious ? 'risk-row' : '') + '">'
+            + '<td><div class="fw-semibold">' + esc(row.student_name)
+            + (row.suspicious ? ' <i class="bi bi-exclamation-triangle-fill text-danger" title="切屏超限"></i>' : '')
+            + '</div><div class="text-muted" style="font-size:12px">' + esc(row.student_no || '')
+            + (row.attempt_no > 1 ? ' · 第 ' + row.attempt_no + ' 次' : '') + '</div></td>'
+            + '<td><span class="badge badge-soft ' + badge + '">' + esc(row.status_display) + '</span>'
+            + (row.is_timeout ? ' <span class="badge badge-soft badge-soft-red">超时</span>' : '') + '</td>'
+            + '<td><div class="prog-mini mb-1"><span style="width:' + prog.percent + '%"></span></div>'
+            + '<div class="text-muted" style="font-size:12px">' + prog.answered + ' / ' + prog.total
+            + ' 题（' + prog.percent + '%）</div></td>'
+            + '<td class="text-center small">'
+            + (row.status === 'in_progress' ? fmtSeconds(row.remaining_seconds) : '—') + '</td>'
+            + '<td class="text-center small">' + esc(scoreText) + '</td>'
+            + '<td class="text-center ' + (row.suspicious ? 'text-danger fw-bold' : '') + '">'
+            + row.switch_count + '</td>'
+            + '<td class="text-center ' + (row.paste_count > 0 ? 'text-warning fw-bold' : '') + '">'
+            + row.paste_count + '</td>'
+            + '<td class="small text-muted">' + esc(row.started_at) + '</td>'
+            + '</tr>';
+    }
+
+    document.querySelectorAll('#status-tabs button').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('#status-tabs button').forEach(function (b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            currentStatus = btn.dataset.status;
+            load();
+        });
+    });
+    document.getElementById('btn-suspicious').addEventListener('click', function () {
+        onlySuspicious = !onlySuspicious;
+        this.classList.toggle('active', onlySuspicious);
+        load();
+    });
+    document.getElementById('btn-refresh').addEventListener('click', load);
+    let kwTimer = null;
+    document.getElementById('f-keyword').addEventListener('input', function () {
+        clearTimeout(kwTimer);
+        kwTimer = setTimeout(load, 350);
+    });
+
+    load();
+    timer = setInterval(load, 10000);
+    window.addEventListener('beforeunload', function () { clearInterval(timer); });
+})();
+</script>
+{% endblock %}

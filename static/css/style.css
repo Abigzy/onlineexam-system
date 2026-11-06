@@ -1,0 +1,983 @@
+/* ============================================================
+   AI 在线考试与学情分析系统 —— 全局样式
+   ------------------------------------------------------------
+   设计方向：杂志编辑 Editorial —— 记忆点「一张考卷」。
+   米白纸底、暖墨文字、朱砂红批改笔强调、宋体标题 + 等宽数字。
+   所有颜色走 CSS 变量，组件内不硬编码；动效在
+   prefers-reduced-motion: reduce 下全部关闭。
+   ============================================================ */
+
+:root {
+    /* ---------- 纸张与墨色 ---------- */
+    --paper: #faf8f2;             /* 米白纸底（不是纯白） */
+    --paper-2: #f3efe7;           /* 稍深的纸，用于表头/分区 */
+    --surface: #fffefb;           /* 卡片面，近白纸 */
+
+    --ink: #211f1b;               /* 暖墨，主文字 */
+    --ink-soft: #4a4640;          /* 次级文字 */
+    --ink-muted: #6f6a60;         /* 弱化文字（对比度 ≥ 4.5:1，保证可读） */
+    --line: rgba(33, 31, 27, .13);       /* 发丝分隔线 */
+    --line-strong: rgba(33, 31, 27, .24);
+
+    /* ---------- 强调与辅助 ---------- */
+    --accent: #c0392b;            /* 朱砂红：批改笔，只留给关键动作 */
+    --accent-deep: #99291f;
+    --accent-soft: #f7e6e3;       /* 朱砂红的浅底 */
+    --slate: #2f4858;             /* 黛蓝：信息 / 链接 / 图表主色 */
+    --slate-deep: #243a49;
+    --slate-soft: #e7edf1;
+    --jade: #2e6e5e;              /* 通过 / 正确 */
+    --amber: #a06a17;             /* 警告 / 待处理 */
+
+    /* ---------- 几何 ---------- */
+    --radius-xs: 3px;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+
+    /* ---------- 阴影（三级，带暖色而非纯黑） ---------- */
+    --shadow-1: 0 1px 2px rgba(33, 31, 27, .06), 0 3px 10px rgba(33, 31, 27, .06);
+    --shadow-2: 0 8px 22px rgba(33, 31, 27, .10);
+    --shadow-3: 0 20px 52px rgba(33, 31, 27, .16);
+
+    /* ---------- 动效 ---------- */
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --dur-fast: 160ms;
+    --dur-base: 300ms;
+    --dur-slow: 620ms;
+
+    /* ---------- 字体 ---------- */
+    --font-display: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong",
+                    "SimSun", serif;                              /* 展示：宋体，学术考卷感 */
+    --font-body: "PingFang SC", "Hiragino Sans GB", "Source Han Sans SC",
+                 "Microsoft YaHei", sans-serif;                   /* 正文：黑体 */
+    --font-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", ui-monospace,
+                 "Menlo", monospace;                              /* 数字：等宽 */
+
+    /* ---------- 覆盖 Bootstrap 变量，让 primary / 链接 / 边框全局统一 ---------- */
+    --bs-primary: var(--slate);
+    --bs-primary-rgb: 47, 72, 88;
+    --bs-link-color: var(--slate);
+    --bs-link-color-rgb: 47, 72, 88;
+    --bs-link-hover-color: var(--accent);
+    --bs-link-hover-color-rgb: 192, 57, 43;
+    --bs-body-bg: var(--paper);
+    --bs-body-color: var(--ink);
+    --bs-border-color: var(--line);
+    --bs-secondary-color: var(--ink-muted);
+    --bs-heading-color: var(--ink);
+    --bs-btn-hover-color: var(--accent);
+    --bs-btn-active-color: var(--accent);
+}
+
+/* ============================================================
+   基础
+   ============================================================ */
+body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body);
+    line-height: 1.7;
+    letter-spacing: .01em;
+    /* 纸面肌理：极淡的噪点，替代纯色平铺 */
+    background-image:
+        radial-gradient(48rem 36rem at 85% -12%, rgba(47, 72, 88, .05), transparent 60%),
+        radial-gradient(40rem 30rem at -8% 8%, rgba(192, 57, 43, .04), transparent 55%);
+    background-attachment: fixed;
+}
+
+/* 标题统一走宋体，营造考卷/学术的印刷感 */
+h1, h2, h3, h4, h5, h6,
+.brand-text, .display-title {
+    font-family: var(--font-display);
+    letter-spacing: .01em;
+    font-weight: 600;
+}
+
+/* 数字（分数 / 计时 / 统计）统一等宽，让「数据」有仪表盘感 */
+.stat-value, .exam-timer, .counter-pill b, .score-cell,
+.num, .text-tabular {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em;
+}
+
+/* 可见焦点环（可访问性） */
+a:focus-visible, button:focus-visible, .form-control:focus-visible,
+.form-select:focus-visible, .nav-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-xs);
+}
+
+::selection { background: var(--accent-soft); color: var(--ink); }
+
+/* ============================================================
+   导航：纸张感 + 顶部一条朱砂红线
+   ============================================================ */
+.app-navbar {
+    background: rgba(250, 248, 242, .9);
+    backdrop-filter: saturate(160%) blur(10px);
+    border-bottom: 1px solid var(--line);
+    border-top: 2px solid var(--accent);   /* 记忆点：像考卷的装订线/朱批 */
+}
+
+.app-navbar .nav-link {
+    color: var(--ink-soft);
+    font-weight: 500;
+    padding-top: .8rem;
+    padding-bottom: .8rem;
+    position: relative;
+}
+
+.app-navbar .nav-link:hover { color: var(--accent); }
+
+.app-navbar .nav-link.active {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+/* 下划线与导航对齐，划过即现 */
+.app-navbar .nav-link::after {
+    content: "";
+    position: absolute;
+    left: .5rem; right: .5rem; bottom: .35rem;
+    height: 2px;
+    background: var(--accent);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform var(--dur-fast) var(--ease-out);
+}
+.app-navbar .nav-link:hover::after,
+.app-navbar .nav-link.active::after { transform: scaleX(1); }
+
+/* 品牌：朱砂印章「考」字 */
+.brand-mark {
+    width: 38px;
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: #fff;
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1;
+    box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, .28);
+    /* 印章的轻微内缩，避免像圆角方块 */
+}
+
+.brand-text {
+    font-weight: 600;
+    font-size: 16px;
+    line-height: 1.15;
+    color: var(--ink);
+}
+
+.brand-text small {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--ink-muted);
+    letter-spacing: .14em;   /* 拉开字距，更像封面副题 */
+    font-family: var(--font-body);
+}
+
+/* ============================================================
+   角色徽章与头像
+   ============================================================ */
+.role-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 999px;
+    letter-spacing: .04em;
+    border: 1px solid transparent;
+}
+
+.role-admin   { background: var(--accent-soft); color: var(--accent-deep); border-color: rgba(192, 57, 43, .25); }
+.role-teacher { background: var(--slate-soft); color: var(--slate-deep); border-color: rgba(47, 72, 88, .2); }
+.role-student { background: #e6efe9; color: var(--jade); border-color: rgba(46, 110, 94, .2); }
+
+.avatar-sm { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; }
+
+.avatar-placeholder {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--slate);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: var(--font-display);
+}
+
+.avatar-lg {
+    width: 92px; height: 92px;
+    border-radius: var(--radius-md);
+    object-fit: cover;
+    border: 2px solid var(--paper);
+    box-shadow: var(--shadow-1);
+}
+
+/* ============================================================
+   卡片：纸张感（细边框 + 小圆角 + 轻阴影），拒绝统一大圆角
+   ============================================================ */
+.card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-1);
+    background: var(--surface);
+}
+
+.card-header {
+    background: var(--paper-2);
+    border-bottom: 1px solid var(--line);
+    font-weight: 600;
+    font-family: var(--font-display);
+    letter-spacing: .02em;
+}
+
+/* ============================================================
+   按钮：主按钮用朱砂红（唯一强调色），不再渐变
+   ============================================================ */
+.btn-brand {
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    color: #fff;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    padding: 10px 18px;
+    transition: background var(--dur-fast) ease, transform var(--dur-fast) ease,
+                box-shadow var(--dur-fast) ease;
+}
+
+.btn-brand:hover {
+    color: #fff;
+    background: var(--accent-deep);
+    border-color: var(--accent-deep);
+    box-shadow: var(--shadow-2);
+}
+
+.btn-brand:active { transform: translateY(1px); }
+
+.btn-outline-primary {
+    color: var(--slate);
+    border-color: var(--line-strong);
+    background: transparent;
+}
+.btn-outline-primary:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+/* 标记待复查：把 Bootstrap 的黄改成纸感琥珀描边，与主色协调 */
+.btn-outline-warning {
+    color: var(--amber);
+    border-color: rgba(160, 106, 23, .42);
+    background: transparent;
+}
+.btn-outline-warning:hover {
+    color: #fff;
+    background: var(--amber);
+    border-color: var(--amber);
+}
+
+/* 发布/开始等正向动作：绿色统一成墨绿，呼应「已答」状态色 */
+.btn-outline-success {
+    color: var(--jade);
+    border-color: rgba(46, 110, 94, .45);
+    background: transparent;
+}
+.btn-outline-success:hover {
+    color: #fff;
+    background: var(--jade);
+    border-color: var(--jade);
+}
+
+/* ============================================================
+   认证页：左侧改「纸张 + 朱批」的学术版，不再用渐变海报
+   ============================================================ */
+.auth-wrap { min-height: calc(100vh - 190px); display: flex; align-items: center; }
+
+.auth-panel {
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow-3);
+    background: var(--surface);
+    border: 1px solid var(--line);
+}
+
+.auth-aside {
+    background: var(--paper-2);
+    color: var(--ink);
+    padding: 44px 36px;
+    border-right: 1px solid var(--line);
+    /* 左侧加一道朱砂竖线，呼应批改笔 */
+    position: relative;
+}
+.auth-aside::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: var(--accent);
+}
+
+.auth-aside h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: .01em;
+}
+
+.auth-aside .feature {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    margin-top: 16px;
+    font-size: 14px;
+    color: var(--ink-soft);
+}
+
+.auth-aside .feature i {
+    font-size: 16px;
+    margin-top: 3px;
+    color: var(--accent);
+    width: 20px;
+    text-align: center;
+}
+
+.auth-form { padding: 44px 40px; }
+
+.form-label { font-weight: 600; font-size: 14px; color: var(--ink-soft); }
+
+.form-control, .form-select {
+    border-radius: var(--radius-sm);
+    border-color: var(--line-strong);
+    background: var(--surface);
+}
+.form-control:focus, .form-select:focus {
+    border-color: var(--slate);
+    box-shadow: 0 0 0 3px rgba(47, 72, 88, .12);
+}
+
+/* ============================================================
+   首页 Hero：改「墨色纸 + 朱砂标题」，去掉渐变
+   ============================================================ */
+.hero {
+    background: var(--paper-2);
+    border-bottom: 1px solid var(--line);
+    color: var(--ink);
+    padding: 72px 0 88px;
+    position: relative;
+    overflow: hidden;
+}
+
+.hero::after {
+    content: "";
+    position: absolute;
+    right: -120px;
+    top: -140px;
+    width: 460px; height: 460px;
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+    background: transparent;
+}
+
+.hero h1 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -.01em;
+    color: var(--ink);
+}
+.hero h1 .accent-ink { color: var(--accent); }
+
+.hero .lead { color: var(--ink-soft); max-width: 640px; }
+
+/* 首页顶部的小标签：浅底 + 朱砂描边，替代原来的技术栈堆砌 */
+.hero-tag {
+    color: var(--accent-deep);
+    background: var(--accent-soft);
+    border: 1px solid rgba(192, 57, 43, .28);
+    font-weight: 600;
+    letter-spacing: .04em;
+    font-size: 12px;
+}
+
+.hero-cta { position: relative; z-index: 2; }
+
+.stat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 13px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink-soft);
+    font-size: 13px;
+    margin: 6px 8px 0 0;
+}
+.stat-chip b { font-family: var(--font-mono); color: var(--ink); }
+
+/* ============================================================
+   功能卡 / 快捷入口
+   ============================================================ */
+.feature-card {
+    height: 100%;
+    padding: 26px 22px;
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--slate);
+    box-shadow: var(--shadow-1);
+    transition: transform var(--dur-fast) ease, box-shadow var(--dur-fast) ease,
+                border-color var(--dur-fast) ease;
+}
+
+.feature-card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-2);
+    border-top-color: var(--accent);
+}
+
+.feature-icon {
+    width: 44px; height: 44px;
+    border-radius: var(--radius-sm);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    background: var(--slate-soft);
+    color: var(--slate-deep);
+    margin-bottom: 14px;
+}
+
+.feature-card.is-todo { opacity: .74; }
+
+.quick-link {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    padding: 16px 18px;
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    text-decoration: none;
+    color: inherit;
+    height: 100%;
+    transition: transform var(--dur-fast) ease, box-shadow var(--dur-fast) ease,
+                border-color var(--dur-fast) ease;
+}
+.quick-link:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-2);
+    border-color: var(--line-strong);
+    color: inherit;
+}
+
+/* ============================================================
+   页脚：干净一行，不再堆砌技术栈
+   ============================================================ */
+.app-footer {
+    background: var(--paper-2);
+    border-top: 1px solid var(--line);
+    color: var(--ink-muted);
+    font-size: 13px;
+}
+.app-footer .brand-mini { color: var(--ink-soft); font-family: var(--font-display); }
+
+/* ============================================================
+   Toast
+   ============================================================ */
+.toast-stack {
+    position: fixed;
+    top: 76px;
+    right: 20px;
+    z-index: 1080;
+    width: 320px;
+    pointer-events: none;
+}
+.toast-stack .alert { pointer-events: auto; }
+
+/* ============================================================
+   页头 / 统计卡
+   ============================================================ */
+/* Bootstrap 提醒条改纸感低饱和：成功/警告/危险/信息不再用刺眼的饱和色 */
+.alert-success { background: #e6efe9; color: var(--jade); border-color: rgba(46, 110, 94, .28); }
+.alert-warning { background: #f4ecdb; color: #8a5a14; border-color: rgba(160, 106, 23, .28); }
+.alert-danger  { background: var(--accent-soft); color: var(--accent-deep); border-color: rgba(192, 57, 43, .28); }
+.alert-info    { background: var(--slate-soft); color: var(--slate-deep); border-color: rgba(47, 72, 88, .22); }
+
+.page-head {
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    padding: 22px 0;
+}
+.page-head h4 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.stat-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    height: 100%;
+    transition: border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
+}
+.stat-card:hover { border-color: var(--line-strong); box-shadow: var(--shadow-2); }
+
+.stat-card .stat-value {
+    font-size: 26px;
+    font-weight: 600;
+    line-height: 1.1;
+    color: var(--slate-deep);
+}
+.stat-card .stat-label { font-size: 12px; color: var(--ink-muted); }
+
+/* ============================================================
+   表格
+   ============================================================ */
+.table-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-1);
+}
+
+.table thead th {
+    background: var(--paper-2);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-soft);
+    letter-spacing: .04em;
+    border-bottom: 1px solid var(--line-strong);
+    white-space: nowrap;
+}
+.table td { vertical-align: middle; }
+
+.stem-cell { max-width: 560px; }
+.stem-cell .stem-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.6;
+}
+
+/* ============================================================
+   题型徽章（纸感低饱和）
+   ============================================================ */
+.type-tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: var(--radius-xs);
+    white-space: nowrap;
+    border: 1px solid transparent;
+}
+.type-single   { background: var(--slate-soft); color: var(--slate-deep); border-color: rgba(47, 72, 88, .2); }
+.type-multiple { background: #e6f0f0; color: #176268; border-color: rgba(23, 98, 104, .2); }
+.type-judge    { background: #e6efe9; color: var(--jade); border-color: rgba(46, 110, 94, .2); }
+.type-fill     { background: #f4ecdb; color: var(--amber); border-color: rgba(160, 106, 23, .2); }
+.type-short    { background: #f4e7dc; color: #9a4a21; border-color: rgba(154, 74, 33, .2); }
+.type-essay    { background: #efe6ec; color: #8a3a5c; border-color: rgba(138, 58, 92, .2); }
+
+/* ============================================================
+   选项行
+   ============================================================ */
+.option-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    margin-bottom: 10px;
+    background: var(--surface);
+}
+.option-row.is-correct { border-color: rgba(46, 110, 94, .4); background: #eef5f0; }
+.option-row .option-label-input {
+    width: 62px; flex: 0 0 62px;
+    text-align: center; font-weight: 700;
+    font-family: var(--font-mono);
+}
+
+/* ============================================================
+   知识点树
+   ============================================================ */
+.tree-list { list-style: none; padding-left: 0; margin: 0; }
+.tree-list .tree-list {
+    padding-left: 26px;
+    border-left: 1px dashed var(--line-strong);
+    margin-left: 10px;
+}
+.tree-node { padding: 7px 10px; border-radius: var(--radius-xs); display: flex; align-items: center; gap: 8px; }
+.tree-node:hover { background: var(--paper-2); }
+.tree-node .node-name { font-weight: 600; }
+.tree-node .node-actions { margin-left: auto; opacity: 0; transition: opacity var(--dur-fast) ease; }
+.tree-node:hover .node-actions { opacity: 1; }
+
+/* ============================================================
+   草稿卡
+   ============================================================ */
+.draft-card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    margin-bottom: 14px;
+    background: var(--surface);
+}
+.draft-card.is-accepted { border-color: rgba(46, 110, 94, .45); box-shadow: 0 0 0 3px rgba(46, 110, 94, .14); }
+
+/* ============================================================
+   空状态
+   ============================================================ */
+.empty-state { text-align: center; padding: 60px 20px; color: var(--ink-muted); }
+.empty-state i { font-size: 42px; display: block; margin-bottom: 12px; opacity: .5; }
+
+@media (max-width: 991.98px) {
+    .auth-aside { display: none; }
+    .auth-form { padding: 32px 24px; }
+    .hero { padding: 52px 0 60px; }
+    .toast-stack { width: auto; left: 16px; right: 16px; }
+}
+
+/* ==================== 模块三：试卷与组卷 ==================== */
+.badge-soft-amber { background: #f4ecdb; color: var(--amber); }
+.badge-soft-teal { background: #e6f0f0; color: #176268; }
+.badge-soft-gray { background: var(--paper-2); color: var(--ink-soft); }
+.badge-soft-purple { background: #ece8ef; color: #5a4a70; }
+.badge-soft-red { background: var(--accent-soft); color: var(--accent-deep); }
+
+/* 三栏工作台：大屏三栏 → 中屏两栏 → 小屏单栏 */
+.compose-grid {
+    display: grid;
+    grid-template-columns: 322px minmax(0, 1fr) 352px;
+    gap: 16px;
+    align-items: start;
+}
+.compose-grid > .compose-right { grid-column: 3; }
+@media (max-width: 1600px) {
+    .compose-grid { grid-template-columns: 300px minmax(0, 1fr); }
+    .compose-grid > .compose-right { grid-column: 1 / -1; }
+}
+@media (max-width: 992px) {
+    .compose-grid { grid-template-columns: minmax(0, 1fr); }
+    .compose-grid > * { grid-column: 1 / -1; }
+}
+
+.panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-1);
+    overflow: hidden;
+}
+.panel-head {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    font-size: .92rem;
+    font-family: var(--font-display);
+}
+.panel-body { padding: 14px 16px; }
+.panel-body + .panel-body { border-top: 1px dashed var(--line); }
+.panel-sub { font-size: .8rem; color: var(--ink-muted); font-weight: 400; }
+
+/* 组卷蓝图 */
+.blueprint-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 56px 58px 26px;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 6px;
+}
+.blueprint-row select, .blueprint-row input {
+    font-size: .82rem; padding: .22rem .4rem; border-radius: var(--radius-xs);
+}
+.blueprint-row input { text-align: center; }
+
+/* 知识点选择 */
+.kp-tree {
+    max-height: 186px; overflow: auto;
+    border: 1px solid var(--line); border-radius: var(--radius-sm);
+    padding: 8px 10px; background: var(--surface);
+}
+.kp-tree label { display: block; font-size: .85rem; padding: 1px 0; cursor: pointer; }
+.kp-tree .kp-child { padding-left: 18px; }
+
+/* 卷面题目卡片 */
+.paper-q {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    background: var(--surface);
+    transition: border-color var(--dur-fast) ease;
+}
+.paper-q:hover { border-color: var(--line-strong); }
+.paper-q .q-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+.paper-q .q-stem { font-size: .9rem; line-height: 1.7; }
+.paper-q .q-opts { font-size: .84rem; color: var(--ink-soft); margin-top: 4px; }
+.paper-q .q-meta { font-size: .78rem; color: var(--ink-muted); margin-top: 6px; }
+.paper-q .q-score { width: 72px; }
+.paper-q .q-index {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 24px; height: 24px; border-radius: var(--radius-xs);
+    background: var(--slate-soft); color: var(--slate-deep);
+    font-size: .78rem; font-weight: 600; margin-right: 6px;
+    font-family: var(--font-mono);
+}
+
+.section-block { margin-bottom: 18px; }
+.section-block .section-title {
+    font-weight: 600; font-size: .95rem; font-family: var(--font-display);
+    display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+    padding-bottom: 6px; border-bottom: 1px dashed var(--line-strong); margin-bottom: 10px;
+}
+
+/* 组卷预警 */
+.warn-item {
+    border-left: 3px solid var(--ink-muted);
+    background: var(--paper);
+    padding: 6px 10px;
+    margin-bottom: 6px;
+    font-size: .84rem; line-height: 1.6;
+    border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+}
+.warn-item.warning { border-left-color: var(--amber); background: #f7f0e2; }
+.warn-item.error { border-left-color: var(--accent); background: var(--accent-soft); }
+.warn-item.info { border-left-color: var(--slate); background: var(--slate-soft); }
+
+/* 图表容器 */
+.chart-box { height: 232px; width: 100%; }
+.chart-box-tall { height: 268px; width: 100%; }
+
+/* 题库家底矩阵 */
+.pool-table { font-size: .78rem; width: 100%; }
+.pool-table th, .pool-table td { padding: .22rem .3rem; text-align: center; }
+.pool-table th { color: var(--ink-muted); font-weight: 500; }
+.pool-table td.pool-empty { color: var(--accent); font-weight: 600; }
+
+/* AI 组卷说明 */
+.notes-body {
+    font-size: .86rem; line-height: 1.8; max-height: 320px; overflow: auto;
+    white-space: pre-wrap; word-break: break-word;
+}
+.notes-body strong { color: var(--slate-deep); }
+
+/* ==================== 模块四：在线考试 ==================== */
+.badge-soft {
+    font-weight: 600; font-size: .72rem; letter-spacing: .02em;
+    border-radius: 999px; padding: .3em .72em;
+}
+
+/* 通用筛选条 */
+.filter-bar {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 14px;
+    box-shadow: var(--shadow-1);
+}
+
+/* 考试列表：计数胶囊 */
+.counter-pill {
+    display: inline-flex; flex-direction: column; align-items: center;
+    min-width: 56px; padding: 3px 8px; border-radius: var(--radius-sm);
+    background: var(--paper-2); border: 1px solid var(--line);
+}
+.counter-pill b { font-size: 15px; line-height: 1.15; font-family: var(--font-mono); }
+.counter-pill span { font-size: 10px; color: var(--ink-muted); }
+
+/* 考试监控：进度条与嫌疑行 */
+.prog-mini { height: 6px; border-radius: 999px; background: var(--paper-2); overflow: hidden; }
+.prog-mini > span { display: block; height: 100%; background: var(--slate); }
+.risk-row { background: #fbf1ee; }
+.risk-row:hover { background: var(--accent-soft); }
+.live-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--jade);
+    display: inline-block; box-shadow: 0 0 0 3px rgba(46, 110, 94, .18);
+    animation: live-pulse 1.6s infinite;
+}
+@keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* 学生答题页 */
+.exam-bar {
+    position: sticky; top: 0; z-index: 1030;
+    background: rgba(250, 248, 242, .96);
+    backdrop-filter: saturate(160%) blur(10px);
+    border-bottom: 1px solid var(--line);
+    padding: 10px 0;
+}
+.exam-timer {
+    font-variant-numeric: tabular-nums; font-weight: 600; font-size: 26px;
+    line-height: 1; color: var(--slate-deep);
+    font-family: var(--font-mono);
+}
+.exam-timer.warn { color: var(--amber); }
+.exam-timer.danger { color: var(--accent); animation: timer-blink 1s steps(2, start) infinite; }
+@keyframes timer-blink { 50% { opacity: .45; } }
+
+.save-flag { font-size: 12px; color: var(--amber); font-weight: 500; }
+.save-flag.saving { color: var(--slate); }
+.save-flag.saved { color: var(--jade); }
+.save-flag.error { color: var(--accent); }
+
+.sheet-card {
+    background: var(--surface); border-radius: var(--radius-md);
+    border: 1px solid var(--line); box-shadow: var(--shadow-1); padding: 14px;
+}
+.q-sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); gap: 8px; }
+.q-sheet .q-cell {
+    border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
+    background: var(--surface); color: var(--ink-soft);
+    height: 42px; font-size: 13px; font-weight: 600;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; position: relative; transition: var(--dur-fast);
+    font-family: var(--font-mono);
+}
+.q-sheet .q-cell:hover { border-color: var(--slate); color: var(--slate-deep); }
+.q-sheet .q-cell.is-answered { background: #eef5f0; border-color: rgba(46, 110, 94, .5); color: var(--jade); }
+.q-sheet .q-cell.is-current {
+    background: var(--slate); border-color: var(--slate); color: #fff;
+    box-shadow: 0 0 0 3px rgba(47, 72, 88, .18);
+}
+.q-sheet .q-cell.is-flagged::after {
+    content: ''; position: absolute; top: 4px; right: 4px;
+    width: 7px; height: 7px; border-radius: 50%; background: var(--amber);
+}
+/* 图例色卡：颜色与答题卡格子的实际状态严格一致，做到「图例说什么、格子长什么样」 */
+.legend-dot {
+    width: 14px; height: 14px; border-radius: 3px;
+    display: inline-block; vertical-align: -2px;
+}
+.legend-dot.legend-answered {
+    background: #eef5f0; border: 1px solid rgba(46, 110, 94, .5);
+}
+.legend-dot.legend-unanswered {
+    background: var(--surface); border: 1px solid var(--line-strong);
+}
+.legend-dot.legend-flagged {
+    background: var(--surface); border: 1px solid var(--line-strong); position: relative;
+}
+.legend-dot.legend-flagged::after {
+    content: ''; position: absolute; top: 1px; right: 1px;
+    width: 5px; height: 5px; border-radius: 50%; background: var(--amber);
+}
+
+/* 答题卡列：全卷模式下随页面滚动时固定在视口内（sticky 在单题模式无副作用） */
+@media (min-width: 992px) {
+    #sheet-col {
+        position: sticky;
+        top: 76px;                       /* 略大于 .exam-bar（sticky top:0，约 57px）+ 呼吸间距 */
+        align-self: flex-start;          /* 关键：不拉伸到与右侧等高，sticky 才能生效 */
+        max-height: calc(100vh - 76px - 16px);
+        overflow-y: auto;                /* 答题卡本身很长时内部滚动，不撑破视口 */
+    }
+}
+
+.question-card {
+    background: var(--surface); border-radius: var(--radius-md);
+    border: 1px solid var(--line); box-shadow: var(--shadow-1);
+}
+.q-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.q-index {
+    width: 30px; height: 30px; border-radius: var(--radius-xs);
+    background: var(--accent); color: #fff;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; font-family: var(--font-mono);
+}
+.q-stem { font-size: 16px; line-height: 1.9; white-space: pre-wrap; }
+.option-row {
+    border: 1px solid var(--line); border-radius: var(--radius-sm);
+    padding: 11px 14px; margin-bottom: 9px; cursor: pointer; background: var(--surface);
+    display: flex; align-items: flex-start; gap: 10px; transition: var(--dur-fast);
+}
+.option-row:hover { border-color: var(--slate); background: var(--slate-soft); }
+.option-row.is-picked {
+    border-color: var(--accent); background: var(--accent-soft);
+    box-shadow: 0 0 0 2px rgba(192, 57, 43, .14);
+}
+.option-label {
+    width: 26px; height: 26px; flex: 0 0 26px; border-radius: var(--radius-xs);
+    background: var(--paper-2); color: var(--ink-soft);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; font-family: var(--font-mono);
+}
+.option-row.is-picked .option-label { background: var(--accent); color: #fff; }
+.option-content { flex: 1; line-height: 1.7; white-space: pre-wrap; }
+
+/* 主观题 / 填空作答区 */
+.answer-area textarea {
+    font-size: 15px; line-height: 1.7;
+    font-family: var(--font-body);
+}
+
+.all-mode .question-block {
+    padding-bottom: 22px; margin-bottom: 22px;
+    border-bottom: 1px dashed var(--line-strong);
+}
+.all-mode .question-block:last-child { border-bottom: none; margin-bottom: 0; }
+
+.cheat-banner {
+    background: var(--accent-soft); border: 1px solid rgba(192, 57, 43, .3); color: var(--accent-deep);
+    border-radius: var(--radius-sm); padding: 8px 14px; font-size: 13px;
+}
+.proctor-shield {
+    position: fixed; inset: 0; z-index: 2000; background: rgba(33, 31, 27, .92);
+    color: #fff; display: none; align-items: center; justify-content: center; text-align: center;
+}
+.proctor-shield.show { display: flex; }
+
+/* 全屏提示遮罩（与 proctor-shield 同源的防作弊层） */
+.fullscreen-mask {
+    position: fixed; inset: 0; z-index: 2000; background: rgba(33, 31, 27, .92);
+    color: #fff; display: none; align-items: center; justify-content: center; text-align: center;
+}
+.fullscreen-mask.show { display: flex; }
+
+/* ============================================================
+   动效：页面入场序列（错峰），reduced-motion 下关闭
+   ============================================================ */
+@keyframes rise-in {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: none; }
+}
+
+.hero > .container > *, .auth-panel, .page-head,
+.table-card, .stat-card, .panel, .card {
+    animation: rise-in var(--dur-base) var(--ease-out) both;
+}
+.hero > .container > *:nth-child(2) { animation-delay: 60ms; }
+.hero > .container > *:nth-child(3) { animation-delay: 120ms; }
+.hero > .container > *:nth-child(4) { animation-delay: 180ms; }
+
+@media (max-width: 991.98px) {
+    .exam-timer { font-size: 21px; }
+    .q-sheet { grid-template-columns: repeat(auto-fill, minmax(38px, 1fr)); }
+}
+
+/* 尊重「减少动态效果」偏好：关闭全部动画 */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+    .hero > .container > *, .auth-panel, .page-head,
+    .table-card, .stat-card, .panel, .card { animation: none; }
+}

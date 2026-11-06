@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{% if mode == 'create' %}新建用户{% else %}编辑用户{% endif %} · 管理控制台{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">{% if mode == 'create' %}新建用户{% else %}编辑用户{% endif %}</h4>
+            <div class="text-muted small">
+                {% if mode == 'create' %}
+                    教师与管理员账号只能由管理端创建；初始密码必须通过系统密码策略。
+                {% else %}
+                    用户名创建后不可修改；账号状态请回到列表用「停用 / 启用」操作。
+                {% endif %}
+            </div>
+        </div>
+        <a href="{% url 'manage-user-list' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i> 返回列表
+        </a>
+    </div>
+</div>
+
+<div class="container py-4">
+    <div class="row g-4">
+        <div class="col-12 col-lg-8">
+            <div class="table-card p-4">
+                {% if form.non_field_errors %}
+                    <div class="alert alert-danger py-2 small">
+                        {% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
+                    </div>
+                {% endif %}
+
+                <form method="post" novalidate id="user-form">
+                    {% csrf_token %}
+                    <div class="row g-3">
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">用户名 <span class="text-danger">*</span></label>
+                            {% if mode == 'create' %}
+                                {{ form.username }}
+                            {% else %}
+                                {# AC-16：用户名按只读文本渲染，不依赖序列化器的只读标记 #}
+                                <input type="text" class="form-control bg-body-secondary"
+                                       value="{{ target.username }}" readonly aria-readonly="true">
+                                <div class="form-text">用户名创建后不可修改。</div>
+                            {% endif %}
+                            {% for error in form.username.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">邮箱 <span class="text-danger">*</span></label>
+                            {{ form.email }}
+                            {% for error in form.email.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">真实姓名</label>
+                            {{ form.real_name }}
+                            {% for error in form.real_name.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">角色 <span class="text-danger">*</span></label>
+                            {{ form.role }}
+                            {% if mode == 'edit' %}
+                                <div class="form-text">改为管理员将获得系统全部管理权限；超级管理员不可降级。</div>
+                            {% endif %}
+                            {% for error in form.role.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">学号 / 工号</label>
+                            {{ form.student_no }}
+                            <div class="form-text">可留空：教师自动派工号，学生按年级派学号；手填则须与所选年级一致。</div>
+                            {% for error in form.student_no.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                        </div>
+
+                        {% if mode == 'create' %}
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">入学年级（学生）</label>
+                            {{ form.grade_year }}
+                            <div class="form-text">创建学生时必填，用于派发学号；教师无需选择。</div>
+                            {% for error in form.grade_year.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                        </div>
+                        {% endif %}
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">任教学科</label>
+                            {{ form.subject }}
+                            <datalist id="subject-options">
+                                {% for subject in subjects %}<option value="{{ subject }}"></option>{% endfor %}
+                            </datalist>
+                            <div class="form-text">教师专属，可自由填写；留空表示暂未绑定。</div>
+                            {% for error in form.subject.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">手机号</label>
+                            {{ form.phone }}
+                            {% for error in form.phone.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">学校 / 院系</label>
+                            {{ form.school }}
+                            {% for error in form.school.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                        </div>
+
+                        {% if mode == 'create' %}
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">初始密码 <span class="text-danger">*</span></label>
+                            <div class="input-group">
+                                {{ form.password }}
+                                <button class="btn btn-outline-secondary" type="button" id="btn-gen-password"
+                                        title="随机生成一个满足密码策略的强密码">
+                                    <i class="bi bi-shuffle"></i>
+                                </button>
+                            </div>
+                            <div class="form-text">至少 6 位；不能纯数字、不能是常见弱口令、不能与用户名过于相似。</div>
+                            {% for error in form.password.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">确认初始密码 <span class="text-danger">*</span></label>
+                            {{ form.password2 }}
+                            {% for error in form.password2.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="d-flex gap-2 mt-4">
+                        <button type="submit" class="btn btn-brand btn-sm">
+                            <i class="bi bi-check2 me-1"></i>
+                            {% if mode == 'create' %}创建用户{% else %}保存修改{% endif %}
+                        </button>
+                        <a href="{% url 'manage-user-list' %}" class="btn btn-outline-secondary btn-sm">取消</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="col-12 col-lg-4">
+            <div class="table-card p-4">
+                <h6 class="fw-bold small mb-3"><i class="bi bi-info-circle me-1"></i> 治理规则</h6>
+                <ul class="small text-muted mb-0 ps-3">
+                    <li class="mb-2">新建的账号一律为<b>启用</b>状态，状态字段不出现在表单里。</li>
+                    <li class="mb-2">不允许把<b>最后一个启用状态的管理员</b>停用或降级。</li>
+                    <li class="mb-2">本期<b>不提供删除</b>：停用即可，历史成绩与题库归属全部保留。</li>
+                    <li class="mb-0">重置密码后该用户所有会话立即失效，新密码只显示一次。</li>
+                </ul>
+            </div>
+            {% if mode == 'edit' and target %}
+            <div class="table-card p-4 mt-3">
+                <h6 class="fw-bold small mb-3"><i class="bi bi-clock-history me-1"></i> 账号信息</h6>
+                <div class="small text-muted">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>注册时间</span><span>{{ target.date_joined|date:"Y-m-d H:i" }}</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>最后登录</span>
+                        <span>{% if target.last_login %}{{ target.last_login|date:"Y-m-d H:i" }}{% else %}从未登录{% endif %}</span>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span>当前状态</span>
+                        <span>{% if target.is_active %}启用{% else %}已停用{% endif %}</span>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if mode == 'create' %}
+<script src="{% static 'js/manage.js' %}"></script>
+{% endif %}
+{% endblock %}

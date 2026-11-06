@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}成绩单 · {{ exam_title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .dist-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+    .dist-label { width: 62px; color: #6b7686; }
+    .dist-track { flex: 1; height: 14px; border-radius: 999px; background: #f0f3f8; overflow: hidden; }
+    .dist-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #4f7cff, #22c1a5); }
+    .dist-count { width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+    .rank-badge { display: inline-flex; width: 26px; height: 26px; border-radius: 50%;
+                  align-items: center; justify-content: center; font-size: 12px; font-weight: 700;
+                  background: #eef3ff; color: #3d5cc4; }
+    .rank-badge.top { background: #fff4d6; color: #b8860b; }
+    .score-cell { font-variant-numeric: tabular-nums; font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">{{ exam_title }}</h4>
+            <div class="text-muted small">班级成绩单 · 排名与分数分布</div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="{% url 'grading-workbench' %}?exam_id={{ exam_id }}"
+               class="btn btn-primary btn-sm"><i class="bi bi-clipboard-check me-1"></i> 去批改</a>
+            <a href="{% url 'exam-list' %}" class="btn btn-outline-secondary btn-sm">返回考试列表</a>
+        </div>
+    </div>
+</div>
+
+<div class="container py-4">
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-2"><div class="stat-card"><div class="stat-value" id="s-applicants">—</div><div class="stat-label">应考</div></div></div>
+        <div class="col-6 col-lg-2"><div class="stat-card"><div class="stat-value" id="s-submitted">—</div><div class="stat-label">已交卷</div></div></div>
+        <div class="col-6 col-lg-2"><div class="stat-card"><div class="stat-value" id="s-graded">—</div><div class="stat-label">已判分</div></div></div>
+        <div class="col-6 col-lg-2"><div class="stat-card"><div class="stat-value text-primary" id="s-avg">—</div><div class="stat-label">平均分</div></div></div>
+        <div class="col-6 col-lg-2"><div class="stat-card"><div class="stat-value text-success" id="s-max">—</div><div class="stat-label">最高分</div></div></div>
+        <div class="col-6 col-lg-2"><div class="stat-card"><div class="stat-value" id="s-passrate">—</div><div class="stat-label">及格率</div></div></div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-lg-5">
+            <div class="card border-0 shadow-sm h-100" style="border-radius:16px">
+                <div class="card-body">
+                    <h6 class="mb-3">分数段分布 <span class="text-muted small">（按得分率）</span></h6>
+                    <div id="distribution"><div class="text-muted small">加载中…</div></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-lg-7">
+            <div class="card border-0 shadow-sm h-100" style="border-radius:16px">
+                <div class="card-body">
+                    <h6 class="mb-3">判分信息</h6>
+                    <div class="row g-3 small">
+                        <div class="col-6 col-md-4"><div class="text-muted">多选题给分策略</div>
+                            <div class="fw-semibold" id="i-policy">—</div></div>
+                        <div class="col-6 col-md-4"><div class="text-muted">满分</div>
+                            <div class="fw-semibold" id="i-total">—</div></div>
+                        <div class="col-6 col-md-4"><div class="text-muted">及格分</div>
+                            <div class="fw-semibold" id="i-pass">—</div></div>
+                        <div class="col-6 col-md-4"><div class="text-muted">待判分</div>
+                            <div class="fw-semibold" id="i-pending">—</div></div>
+                        <div class="col-6 col-md-4"><div class="text-muted">最低分</div>
+                            <div class="fw-semibold" id="i-min">—</div></div>
+                        <div class="col-6 col-md-4"><div class="text-muted">成绩公开</div>
+                            <div class="fw-semibold" id="i-public">—</div></div>
+                    </div>
+                    <div class="alert alert-warning small mt-3 mb-0 py-2" id="pending-hint" style="display:none">
+                        还有作答未判分，平均分与及格率暂不含它们。
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-card">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 p-3 border-bottom">
+            <h6 class="mb-0">成绩明细</h6>
+            <div class="d-flex gap-2">
+                <select class="form-select form-select-sm" id="f-classroom" style="width:180px">
+                    <option value="">全部班级</option>
+                </select>
+                <input type="text" class="form-control form-control-sm" id="f-keyword"
+                       placeholder="搜索姓名 / 学号" style="width:200px">
+                <button class="btn btn-outline-secondary btn-sm" id="btn-reload">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th class="text-center" style="width:70px">排名</th>
+                        <th>考生</th>
+                        <th>状态</th>
+                        <th class="text-center">客观题</th>
+                        <th class="text-center">主观题</th>
+                        <th class="text-center">总分</th>
+                        <th class="text-center">是否及格</th>
+                        <th class="text-center" style="width:180px">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="score-body">
+                    <tr><td colspan="8" class="text-center text-muted py-5">加载中…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(function () {
+    'use strict';
+
+    const EXAM_ID = {{ exam_id }};
+
+    function esc(text) {
+        return String(text === null || text === undefined ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function num(value) {
+        if (value === null || value === undefined) return '—';
+        const v = Number(value);
+        return Number.isInteger(v) ? String(v) : v.toFixed(1);
+    }
+    // 学生姓名做成入口：从成绩单直接下钻到该生的学情详情页。
+    // can_view_analytics 由后端按「是否在自己带的班里」给出：跨班考试时不能点的
+    // 渲染成纯文本，否则用户点进 404 会以为页面坏了。
+    function studentLink(row) {
+        const name = esc(row.student_name || '—');
+        if (!row.student_id || row.can_view_analytics === false) return name;
+        return '<a class="text-decoration-none" href="/analytics/students/' + row.student_id + '/"'
+            + ' title="查看该学生的学情详情">' + name + '</a>';
+    }
+
+    async function load() {
+        const body = document.getElementById('score-body');
+        let data;
+        try {
+            data = await API.get('/grading/scoreboard/', {
+                exam_id: EXAM_ID,
+                keyword: document.getElementById('f-keyword').value.trim(),
+                classroom_id: document.getElementById('f-classroom').value || undefined,
+            });
+        } catch (err) {
+            body.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-5">'
+                + esc(UI.errorText(err)) + '</td></tr>';
+            return;
+        }
+        renderSummary(data);
+        renderRows(data.results || [], body);
+    }
+
+    async function loadClassrooms() {
+        const select = document.getElementById('f-classroom');
+        try {
+            const data = await API.get('/classrooms/options/');
+            (data.results || []).forEach(function (c) {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = c.name + (c.grade_year ? '（' + c.grade_year + '）' : '');
+                select.appendChild(opt);
+            });
+        } catch (err) { /* 班级下拉加载失败不阻断成绩单 */ }
+    }
+
+    function renderSummary(data) {
+        const summary = data.summary;
+        document.getElementById('s-applicants').textContent = num(summary.applicants);
+        document.getElementById('s-submitted').textContent = num(summary.submitted);
+        document.getElementById('s-graded').textContent = num(summary.graded);
+        document.getElementById('s-avg').textContent = num(summary.avg_score);
+        document.getElementById('s-max').textContent = num(summary.max_score);
+        document.getElementById('s-passrate').textContent =
+            summary.pass_rate === null ? '—' : summary.pass_rate + '%';
+
+        document.getElementById('i-policy').textContent = data.exam.multiple_choice_policy_display;
+        document.getElementById('i-total').textContent = num(data.exam.total_score) + ' 分';
+        document.getElementById('i-pass').textContent = num(data.exam.pass_score) + ' 分';
+        document.getElementById('i-pending').textContent = num(summary.pending_grading) + ' 份';
+        document.getElementById('i-min').textContent = num(summary.min_score);
+        document.getElementById('i-public').textContent =
+            data.exam.show_score_immediately ? '交卷后立即公开' : '教师出分后公开';
+
+        document.getElementById('pending-hint').style.display =
+            summary.pending_grading > 0 ? '' : 'none';
+
+        const labels = ['90-100', '80-89', '70-79', '60-69', '0-59'];
+        const values = labels.map(function (key) { return (summary.distribution || {})[key] || 0; });
+        const peak = Math.max.apply(null, values.concat([1]));
+        document.getElementById('distribution').innerHTML = labels.map(function (key, index) {
+            const value = values[index];
+            return '<div class="dist-row">'
+                + '<span class="dist-label">' + key + '</span>'
+                + '<span class="dist-track"><span class="dist-fill" style="width:'
+                + Math.round(value * 100 / peak) + '%"></span></span>'
+                + '<span class="dist-count">' + value + ' 人</span></div>';
+        }).join('');
+    }
+
+    function renderRows(rows, body) {
+        if (!rows.length) {
+            body.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-5">暂无数据</td></tr>';
+            return;
+        }
+        body.innerHTML = rows.map(function (row) {
+            const top = row.rank <= 3 ? ' top' : '';
+            const passedBadge = row.passed === true
+                ? '<span class="badge badge-soft badge-soft-teal">及格</span>'
+                : (row.passed === false
+                    ? '<span class="badge badge-soft badge-soft-red">未及格</span>'
+                    : '<span class="badge badge-soft badge-soft-amber">未判分</span>');
+            return '<tr>'
+                + '<td class="text-center"><span class="rank-badge' + top + '">' + row.rank + '</span></td>'
+                + '<td><div class="fw-semibold">' + studentLink(row) + '</div>'
+                + '<div class="text-muted small">' + esc(row.student_no || '') + '</div></td>'
+                + '<td><span class="badge badge-soft badge-soft-amber">' + esc(row.status_display) + '</span>'
+                + (row.is_timeout ? ' <span class="badge badge-soft badge-soft-red">超时</span>' : '')
+                + '</td>'
+                + '<td class="text-center score-cell">' + num(row.objective_score) + '</td>'
+                + '<td class="text-center score-cell">' + num(row.subjective_score) + '</td>'
+                + '<td class="text-center score-cell">' + num(row.score) + ' / ' + num(row.total_score) + '</td>'
+                + '<td class="text-center">' + passedBadge + '</td>'
+                + '<td class="text-center">'
+                + '<button class="btn btn-outline-primary btn-sm me-1 js-grade" data-id="' + row.attempt_id
+                + '">判分</button>'
+                + '<button class="btn btn-outline-success btn-sm js-finalize" data-id="' + row.attempt_id
+                + '">出分</button>'
+                + '</td>'
+                + '</tr>';
+        }).join('');
+
+        Array.prototype.forEach.call(body.querySelectorAll('.js-grade'), function (button) {
+            button.addEventListener('click', async function () {
+                UI.setBusy(button, true, '…');
+                try {
+                    const result = await API.post('/grading/attempts/' + button.dataset.id + '/grade/', {});
+                    UI.success('已判 ' + result.objective.graded + ' 道客观题，当前 '
+                        + num(result.summary.score) + ' 分');
+                    await load();
+                } catch (err) {
+                    UI.error(UI.errorText(err));
+                    UI.setBusy(button, false);
+                }
+            });
+        });
+
+        Array.prototype.forEach.call(body.querySelectorAll('.js-finalize'), function (button) {
+            button.addEventListener('click', async function () {
+                if (!window.confirm('出分后学生即可看到成绩，确定？')) return;
+                UI.setBusy(button, true, '…');
+                try {
+                    await API.post('/grading/attempts/' + button.dataset.id + '/finalize/', {});
+                    UI.success('已出分');
+                    await load();
+                } catch (err) {
+                    UI.error(UI.errorText(err));
+                    UI.setBusy(button, false);
+                }
+            });
+        });
+    }
+
+    document.getElementById('btn-reload').addEventListener('click', load);
+    document.getElementById('f-keyword').addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') load();
+    });
+    document.getElementById('f-classroom').addEventListener('change', load);
+    loadClassrooms();
+    load();
+})();
+</script>
+{% endblock %}

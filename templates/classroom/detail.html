@@ -1,0 +1,501 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}班级详情 · AI 在线考试与学情分析系统{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+        <div>
+            <a href="{% url 'classroom-list' %}" class="text-muted small text-decoration-none">
+                <i class="bi bi-arrow-left me-1"></i>返回班级列表</a>
+            <h4 class="fw-bold mb-0 mt-1" id="c-name">加载中…</h4>
+            <p class="text-muted mb-0 small" id="c-meta"></p>
+        </div>
+        {% if user.is_teacher %}
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-primary btn-sm" id="btn-edit">
+                <i class="bi bi-pencil me-1"></i> 编辑信息</button>
+            <button class="btn btn-outline-danger btn-sm" id="btn-delete-class">
+                <i class="bi bi-trash3 me-1"></i> 删除班级</button>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="row g-4">
+        <!-- 左：班级信息 -->
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header">班级信息</div>
+                <div class="card-body p-3 small" id="c-info">加载中…</div>
+            </div>
+        </div>
+
+        <!-- 右：成员管理 -->
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-people me-1"></i> 学生成员（<span id="member-count">0</span>）</span>
+                    {% if user.is_teacher %}
+                    <button class="btn btn-sm btn-outline-primary" id="btn-add" data-bs-toggle="modal" data-bs-target="#addModal">
+                        <i class="bi bi-person-plus me-1"></i> 添加学生</button>
+                    {% endif %}
+                </div>
+                <div class="card-body p-0">
+                    <div id="member-list" class="p-3 text-muted small">加载中…</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 权限不足：居中弹窗（越权访问别人管理的班级时用，替代原来的 404 文案） -->
+<div class="modal fade" id="permModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title text-danger">
+                    <i class="bi bi-shield-exclamation me-1"></i>权限不足</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body small">
+                你不是这个班级的任课教师或班主任，无法查看成员信息。
+            </div>
+            <div class="modal-footer">
+                <a href="{% url 'classroom-list' %}" class="btn btn-primary btn-sm">返回班级列表</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if user.is_teacher %}
+<!-- 编辑班级信息弹窗 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title">编辑班级信息</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label small">班级名称 <span class="text-danger">*</span></label>
+                        <input class="form-control" id="e-name">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small d-block">班级类型</label>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="e-class-type"
+                                   id="ec-admin" value="admin">
+                            <label class="form-check-label" for="ec-admin">行政班</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="e-class-type"
+                                   id="ec-subject" value="subject">
+                            <label class="form-check-label" for="ec-subject">学科班</label>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small">年级 / 届别</label>
+                        <input class="form-control" id="e-grade">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small">授课学科</label>
+                        <input class="form-control" id="e-subject">
+                    </div>
+                    <div class="col-md-6 d-none" id="row-e-admin-class">
+                        <label class="form-label small">所属行政班</label>
+                        <select class="form-select" id="e-admin-class">
+                            <option value="">不指定</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small">班级简介</label>
+                        <textarea class="form-control" id="e-desc" rows="2"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary btn-sm" id="btn-save-edit">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 添加学生弹窗 -->
+<div class="modal fade" id="addModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title">添加学生</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label small">或按行政班整班导入</label>
+                    <select class="form-select form-select-sm" id="from-classroom">
+                        <option value="">全部行政班（不整班导入）</option>
+                        {% for item in admin_classrooms %}
+                        <option value="{{ item.id }}">{{ item.name }}（{{ item.student_count }} 人）</option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text">
+                        整班导入会把该班全部学生加入本班，已在班内的自动跳过；选了行政班就按学号导入不可用。
+                    </div>
+                </div>
+                <label class="form-label small">按学号批量导入（每行一个）</label>
+                <textarea class="form-control" id="a-nos" rows="5" placeholder="20260001&#10;20260002&#10;20260003"></textarea>
+                <div class="form-text">找不到的学号会忽略并提示，已在本班的不重复加入；
+                    已在同一老师、同一学科、同一年级的另一个学科班里的学生会跳过并单独列出。</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary btn-sm" id="btn-save-add">导入</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 冲突跳过：居中弹窗。学生已在「同老师 + 同学科 + 同年级」的另一个学科班里时必须
+     逐个列出来——静默丢弃是最糟的体验（老师会以为加成功了）。 -->
+<div class="modal fade" id="conflictModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title">
+                    <i class="bi bi-exclamation-triangle me-1 text-warning"></i>部分学生未加入</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body small">
+                <p class="text-muted mb-2">
+                    以下学生已在同一老师、同一学科、同一年级的另一个学科班里，本次已跳过：
+                </p>
+                <ul class="mb-0 ps-3" id="conflict-list"></ul>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary btn-sm" data-bs-dismiss="modal">知道了</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(function () {
+    'use strict';
+    const ID = {{ classroom_id }};
+    const IS_MANAGER = {{ user.is_teacher|yesno:"true,false" }};
+    const CODE_PERM_DENIED = 14003;          // apps/classroom/constants.py
+    let current = null;
+    let permShown = false;
+
+    function esc(t) {
+        return String(t === null || t === undefined ? '' : t)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // 后端：班级不存在 → 404；班级存在但越权 → 403（业务码 14003）
+    function errorCode(err) {
+        return err && typeof err.code !== 'undefined' ? err.code : null;
+    }
+    function isPermError(err) {
+        const code = errorCode(err);
+        return code === CODE_PERM_DENIED || code === 403 || code === 40300;
+    }
+    function isNotFoundError(err) {
+        const code = errorCode(err);
+        return code === 404 || code === 40400;
+    }
+
+    // 越权：弹居中弹窗，并停掉后续渲染——不能留一个「空班级」让人以为数据丢了
+    function showPermModal() {
+        document.getElementById('c-name').textContent = '权限不足';
+        document.getElementById('c-meta').textContent = '';
+        document.getElementById('c-info').innerHTML =
+            '<span class="text-danger">你不是这个班级的任课教师或班主任，无法查看班级信息。</span>';
+        document.getElementById('member-count').textContent = '—';
+        document.getElementById('member-list').innerHTML =
+            '<div class="text-muted small">无权查看成员信息。</div>';
+        if (permShown) return;
+        permShown = true;
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('permModal')).show();
+    }
+
+    function showNotFound() {
+        document.getElementById('c-name').textContent = '班级不存在';
+        document.getElementById('c-meta').textContent = '';
+        document.getElementById('c-info').innerHTML =
+            '<span class="text-muted">该班级可能已被删除。</span>';
+        document.getElementById('member-count').textContent = '—';
+        document.getElementById('member-list').innerHTML =
+            '<div class="text-muted small">—</div>';
+        UI.error('班级不存在或已被删除');
+    }
+
+    async function load() {
+        try {
+            current = await API.get('/classrooms/' + ID + '/');
+        } catch (err) {
+            if (isPermError(err)) { showPermModal(); return; }
+            if (isNotFoundError(err)) { showNotFound(); return; }
+            document.getElementById('c-name').textContent = '加载失败';
+            document.getElementById('c-info').innerHTML = '<span class="text-danger">'
+                + esc(UI.errorText(err)) + '</span>';
+            return;
+        }
+        renderInfo();
+        await loadMembers();
+    }
+
+    function renderInfo() {
+        document.getElementById('c-name').textContent = current.name;
+        document.getElementById('c-meta').textContent =
+            (current.class_type_display || '')
+            + ' · ' + (current.grade_year || '未设届别')
+            + (current.subject ? ' · ' + current.subject : '');
+        const head = current.head_teacher ? current.head_teacher.display_name : '未指定';
+        const teachers = (current.teachers || []).map(function (t) { return t.display_name; });
+        const adminClass = current.admin_class
+            ? '<div class="mb-2"><span class="text-muted">所属行政班：</span><strong>'
+              + esc(current.admin_class.name) + '</strong></div>'
+            : '';
+        document.getElementById('c-info').innerHTML =
+            '<div class="mb-2"><span class="text-muted">班级类型：</span>'
+            + '<strong>' + esc(current.class_type_display || '—') + '</strong></div>'
+            + adminClass
+            + '<div class="mb-2"><span class="text-muted">班主任：</span>'
+            + '<strong>' + esc(head) + '</strong></div>'
+            + '<div class="mb-2"><span class="text-muted">授课教师：</span>'
+            + (teachers.length ? teachers.map(esc).join('、') : '未指定') + '</div>'
+            + '<div class="mb-2"><span class="text-muted">学生人数：</span><strong>'
+            + (current.student_count || 0) + '</strong></div>'
+            + (current.description ? '<div class="text-muted border-top pt-2 mt-2">'
+                + esc(current.description) + '</div>' : '');
+    }
+
+    async function loadMembers() {
+        const list = document.getElementById('member-list');
+        let data;
+        try {
+            data = await API.get('/classrooms/' + ID + '/students/');
+        } catch (err) {
+            if (isPermError(err)) { showPermModal(); return; }
+            if (isNotFoundError(err)) { showNotFound(); return; }
+            list.innerHTML = '<span class="text-danger">' + esc(UI.errorText(err)) + '</span>';
+            return;
+        }
+        const rows = data.results || [];
+        document.getElementById('member-count').textContent = rows.length;
+        if (!rows.length) {
+            list.innerHTML = '<div class="text-muted small">暂无学生成员。</div>';
+            return;
+        }
+        list.innerHTML = '<table class="table table-sm align-middle mb-0"><thead><tr>'
+            + '<th>学号</th><th>姓名</th><th>账号</th><th>邮箱</th>'
+            + (IS_MANAGER ? '<th class="text-end">操作</th>' : '')
+            + '</tr></thead><tbody>'
+            + rows.map(function (m) {
+                return '<tr><td>' + esc(m.student_no || '—') + '</td>'
+                    + '<td>' + esc(m.display_name || m.username) + '</td>'
+                    + '<td>' + esc(m.username) + '</td>'
+                    + '<td>' + esc(m.email || '—') + '</td>'
+                    + (IS_MANAGER
+                        ? '<td class="text-end"><button class="btn btn-sm btn-outline-danger" data-remove="'
+                          + m.id + '">移除</button></td>'
+                        : '')
+                    + '</tr>';
+            }).join('') + '</tbody></table>';
+
+        if (IS_MANAGER) {
+            list.querySelectorAll('[data-remove]').forEach(function (btn) {
+                btn.addEventListener('click', async function () {
+                    const uid = parseInt(btn.getAttribute('data-remove'), 10);
+                    if (!confirm('确认将该学生移出班级？')) return;
+                    try {
+                        await API.del('/classrooms/' + ID + '/students/', { student_ids: [uid] });
+                        UI.success('已移出');
+                        loadMembers();
+                    } catch (err) {
+                        if (isPermError(err)) { showPermModal(); return; }
+                        UI.error(UI.errorText(err));
+                    }
+                });
+            });
+        }
+    }
+
+    // ---- 行政班下拉（编辑学科班时选挂靠） ----
+    async function loadAdminClassOptions(selectedId) {
+        const select = document.getElementById('e-admin-class');
+        select.innerHTML = '<option value="">不指定</option>';
+        try {
+            const data = await API.get('/classrooms/', { class_type: 'admin' });
+            (data.results || []).forEach(function (c) {
+                if (current && c.id === current.id) return;   // 自己不能当自己的上级
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = c.name + (c.grade_year ? '（' + c.grade_year + '）' : '');
+                select.appendChild(opt);
+            });
+        } catch (err) { /* 拉不到行政班不影响编辑 */ }
+        select.value = selectedId ? String(selectedId) : '';
+    }
+
+    function syncEditAdminRow() {
+        const isSubject = document.getElementById('ec-subject').checked;
+        document.getElementById('row-e-admin-class').classList.toggle('d-none', !isSubject);
+        if (!isSubject) document.getElementById('e-admin-class').value = '';
+    }
+    document.querySelectorAll('input[name="e-class-type"]').forEach(function (radio) {
+        radio.addEventListener('change', syncEditAdminRow);
+    });
+
+    // ---- 编辑 ----
+    const btnEdit = document.getElementById('btn-edit');
+    if (btnEdit) {
+        btnEdit.addEventListener('click', async function () {
+            document.getElementById('e-name').value = current.name || '';
+            document.getElementById('e-grade').value = current.grade_year || '';
+            document.getElementById('e-subject').value = current.subject || '';
+            document.getElementById('e-desc').value = current.description || '';
+            document.getElementById(current.class_type === 'subject' ? 'ec-subject' : 'ec-admin').checked = true;
+            await loadAdminClassOptions(current.admin_class ? current.admin_class.id : null);
+            syncEditAdminRow();
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('editModal')).show();
+        });
+        document.getElementById('btn-save-edit').addEventListener('click', async function () {
+            const btn = document.getElementById('btn-save-edit');
+            const name = document.getElementById('e-name').value.trim();
+            if (!name) { UI.error('班级名称不能为空'); return; }
+            UI.setBusy(btn, true, '保存中…');
+            try {
+                await API.patch('/classrooms/' + ID + '/', {
+                    name: name,
+                    grade_year: document.getElementById('e-grade').value.trim(),
+                    subject: document.getElementById('e-subject').value.trim(),
+                    description: document.getElementById('e-desc').value.trim(),
+                    class_type: document.getElementById('ec-subject').checked ? 'subject' : 'admin',
+                    admin_class_id: document.getElementById('e-admin-class').value || null,
+                });
+                UI.success('已保存');
+                bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+                load();
+            } catch (err) { UI.error(UI.errorText(err)); }
+            finally { UI.setBusy(btn, false); }
+        });
+    }
+
+    // ---- 删除班级 ----
+    const btnDelClass = document.getElementById('btn-delete-class');
+    if (btnDelClass) {
+        btnDelClass.addEventListener('click', function () {
+            if (!window.confirm('确认删除班级「' + current.name + '」？\n班级及成员关系将被删除，且不可恢复。')) return;
+            API.del('/classrooms/' + ID + '/')
+                .then(function () {
+                    UI.success('班级已删除');
+                    setTimeout(function () { location.href = '/classrooms/'; }, 600);
+                })
+                .catch(function (err) { UI.error(UI.errorText(err)); });
+        });
+    }
+
+    // ---- 添加学生（学号导入 / 行政班整班导入，二选一） ----
+    const btnAdd = document.getElementById('btn-add');
+    if (btnAdd) {
+        const selFrom = document.getElementById('from-classroom');
+        const txtNos = document.getElementById('a-nos');
+
+        // 互斥：选了行政班 → 学号框置灰并清空；反之输入学号会清掉行政班选择
+        function syncAddMode() {
+            const locked = !!selFrom.value;
+            txtNos.disabled = locked;
+            txtNos.classList.toggle('bg-light', locked);
+            if (locked) txtNos.value = '';
+        }
+        function resetAddForm() {
+            txtNos.value = '';
+            selFrom.value = '';
+            syncAddMode();
+        }
+
+        selFrom.addEventListener('change', syncAddMode);
+        txtNos.addEventListener('input', function () {
+            if (txtNos.value.trim() && selFrom.value) {
+                selFrom.value = '';
+                syncAddMode();
+            }
+        });
+
+        // 冲突明细：谁能进、谁被卡在哪个班，必须一条条摆出来
+        function showConflictModal(conflicts) {
+            document.getElementById('conflict-list').innerHTML = conflicts.map(function (c) {
+                const name = c.student_name || c.student_no || '—';
+                const no = c.student_no ? '（' + esc(c.student_no) + '）' : '';
+                return '<li>' + esc(name) + no + ' 已加入〈'
+                    + esc(c.classroom_name || '其他学科班') + '〉</li>';
+            }).join('');
+            bootstrap.Modal.getOrCreateInstance(
+                document.getElementById('conflictModal')).show();
+        }
+
+        document.getElementById('btn-save-add').addEventListener('click', async function () {
+            const btn = document.getElementById('btn-save-add');
+            const fromId = selFrom.value;
+            const nos = txtNos.value.split(/\n+/)
+                .map(function (s) { return s.trim(); }).filter(Boolean);
+            if (!fromId && !nos.length) {
+                UI.error('请输入至少一个学号，或选择一个行政班整班导入');
+                return;
+            }
+            UI.setBusy(btn, true, '导入中…');
+            try {
+                const payload = fromId
+                    ? { from_classroom_id: parseInt(fromId, 10) }
+                    : { student_nos: nos };
+                const result = await API.post('/classrooms/' + ID + '/students/', payload);
+                const conflicts = result.conflicts || [];
+                const added = fromId ? (result.added || 0) : (result.added || []).length;
+                const missing = fromId ? [] : (result.missing || []);
+                let msg;
+                if (fromId) {
+                    msg = '已从 ' + (result.source || '所选班级') + ' 加入 ' + added + ' 人'
+                        + '，跳过 ' + (result.skipped || 0) + ' 人';
+                } else {
+                    msg = '已加入 ' + added + ' 人';
+                }
+                if (conflicts.length) {
+                    msg += '，其中 ' + conflicts.length + ' 人已在同类学科班被跳过';
+                }
+                if (missing.length) {
+                    msg += '，未找到 ' + missing.length + ' 个学号：' + missing.join('、');
+                }
+                // 一个人都没加成时不能报「成功」——那等于骗人
+                if (added) UI.success(msg); else UI.error(msg);
+
+                const addModalEl = document.getElementById('addModal');
+                if (conflicts.length) {
+                    // 等「添加学生」弹窗收完再弹，避免两层 backdrop 叠在一起
+                    addModalEl.addEventListener('hidden.bs.modal', function handler() {
+                        addModalEl.removeEventListener('hidden.bs.modal', handler);
+                        showConflictModal(conflicts);
+                    });
+                }
+                bootstrap.Modal.getInstance(addModalEl).hide();
+                resetAddForm();
+                // 重新拉一遍：成员列表与头部「学生人数」都会刷新
+                load();
+            } catch (err) {
+                if (isPermError(err)) { showPermModal(); return; }
+                UI.error(UI.errorText(err));
+            } finally { UI.setBusy(btn, false); }
+        });
+    }
+
+    load();
+})();
+</script>
+{% endblock %}

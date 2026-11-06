@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}我的考试 · AI 在线考试与学情分析系统{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">我的考试</h4>
+            <div class="text-muted small">开始作答 / 继续未完成的作答 / 查看成绩</div>
+        </div>
+        <button class="btn btn-outline-secondary btn-sm" id="btn-refresh">
+            <i class="bi bi-arrow-clockwise me-1"></i> 刷新
+        </button>
+    </div>
+</div>
+
+<div class="container py-4">
+    <ul class="nav nav-pills mb-3" id="tabs">
+        <li class="nav-item"><button class="nav-link active" data-tab="all">全部</button></li>
+        <li class="nav-item"><button class="nav-link" data-tab="open">可作答</button></li>
+        <li class="nav-item"><button class="nav-link" data-tab="done">已完成</button></li>
+    </ul>
+
+    <div class="row g-3" id="exam-cards">
+        <div class="col-12 text-center text-muted py-5">加载中…</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(function () {
+    'use strict';
+
+    let allRows = [];
+    let tab = 'all';
+
+    const STATUS_BADGE = {
+        draft: 'badge-soft-gray', published: 'badge-soft-amber',
+        ongoing: 'badge-soft-teal', finished: 'badge-soft-purple', archived: 'badge-soft-gray',
+    };
+    const ATTEMPT_BADGE = {
+        in_progress: 'badge-soft-teal', submitted: 'badge-soft-amber',
+        auto_graded: 'badge-soft-purple', reviewing: 'badge-soft-purple',
+        graded: 'badge-soft-purple', timeout: 'badge-soft-red',
+    };
+
+    function esc(text) {
+        return String(text === null || text === undefined ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function fmt(n) { const v = Number(n || 0); return Number.isInteger(v) ? String(v) : v.toFixed(1); }
+
+    function windowText(item) {
+        if (!item.start_time && !item.end_time) return '不限时间';
+        const start = item.start_time ? item.start_time.slice(0, 16) : '不限';
+        const end = item.end_time ? item.end_time.slice(0, 16) : '不限';
+        return start + ' ~ ' + end;
+    }
+
+    function countdownText(seconds) {
+        seconds = Math.max(0, Number(seconds || 0));
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const pad = function (n) { return String(n).padStart(2, '0'); };
+        return (h > 0 ? h + ' 小时 ' : '') + m + ' 分';
+    }
+
+    function actionHtml(item) {
+        const attempt = item.my_attempt;
+        if (attempt && attempt.status === 'in_progress') {
+            return '<a class="btn btn-brand btn-sm" href="/exams/' + item.id + '/take/">'
+                + '<i class="bi bi-play-fill me-1"></i>继续作答（剩 ' + countdownText(attempt.remaining_seconds) + '）</a>';
+        }
+        if (item.can_start) {
+            return '<button class="btn btn-brand btn-sm act-start" data-id="' + item.id + '">'
+                + '<i class="bi bi-pencil-square me-1"></i>开始考试</button>';
+        }
+        if (attempt) {
+            return '<a class="btn btn-outline-secondary btn-sm" href="/exams/' + item.id + '/result/">查看结果</a>';
+        }
+        return '<button class="btn btn-outline-secondary btn-sm" disabled>'
+            + esc(item.locked_reason || '暂不可作答') + '</button>';
+    }
+
+    function cardHtml(item) {
+        const status = item.computed_status;
+        const badge = STATUS_BADGE[status] || 'badge-soft-gray';
+        const attempt = item.my_attempt;
+
+        let attemptLine = '';
+        if (attempt) {
+            const prog = attempt.progress || { answered: 0, total: 0, percent: 0 };
+            const abadge = ATTEMPT_BADGE[attempt.status] || 'badge-soft-gray';
+            attemptLine = '<div class="mt-2 pt-2 border-top">'
+                + '<div class="d-flex flex-wrap align-items-center gap-2 small">'
+                + '<span class="badge badge-soft ' + abadge + '">' + esc(attempt.status_display) + '</span>'
+                + '<span class="text-muted">已答 ' + prog.answered + ' / ' + prog.total + ' 题</span>'
+                + (attempt.show_score
+                    ? '<span class="fw-semibold text-primary">得分 ' + fmt(attempt.score)
+                      + ' / ' + fmt(attempt.total_score_snapshot) + '</span>'
+                    : '<span class="text-muted">成绩待公布</span>')
+                + (attempt.attempts_left_hint || '')
+                + '</div></div>';
+        }
+
+        return '<div class="col-12 col-lg-6"><div class="card h-100 border-0 shadow-sm" style="border-radius:16px">'
+            + '<div class="card-body">'
+            + '<div class="d-flex justify-content-between align-items-start gap-2 mb-1">'
+            + '<h6 class="mb-0">' + esc(item.title) + '</h6>'
+            + '<span class="badge badge-soft ' + badge + '">' + esc(item.computed_status_display) + '</span>'
+            + '</div>'
+            + '<div class="text-muted small mb-2">' + esc(item.subject || '未设学科') + ' · '
+            + fmt(item.total_score) + ' 分 · ' + item.question_count + ' 题 · 限时 '
+            + item.duration_minutes_effective + ' 分钟</div>'
+            + '<div class="small text-muted mb-2"><i class="bi bi-clock me-1"></i>' + esc(windowText(item)) + '</div>'
+            + (item.description
+                ? '<div class="alert alert-light small py-2 px-3 mb-2" style="border-radius:10px">'
+                  + esc(item.description) + '</div>' : '')
+            + '<div class="d-flex justify-content-between align-items-center">'
+            + '<span class="small text-muted">已考 ' + item.attempts_used + ' / ' + item.max_attempts + ' 次</span>'
+            + actionHtml(item)
+            + '</div>'
+            + attemptLine
+            + '</div></div></div>';
+    }
+
+    function render() {
+        const box = document.getElementById('exam-cards');
+        let rows = allRows;
+        if (tab === 'open') rows = allRows.filter(function (r) { return r.can_start || (r.my_attempt && r.my_attempt.status === 'in_progress'); });
+        if (tab === 'done') rows = allRows.filter(function (r) { return r.my_attempt && r.my_attempt.status !== 'in_progress'; });
+
+        if (!rows.length) {
+            box.innerHTML = '<div class="col-12 text-center text-muted py-5">'
+                + '<i class="bi bi-inbox d-block mb-2" style="font-size:34px;opacity:.4"></i>'
+                + (tab === 'all' ? '暂时没有安排给你的考试' : '这个分类下没有考试') + '</div>';
+            return;
+        }
+        box.innerHTML = rows.map(cardHtml).join('');
+        box.querySelectorAll('.act-start').forEach(function (btn) {
+            btn.addEventListener('click', function () { startExam(btn.dataset.id); });
+        });
+    }
+
+    async function startExam(examId) {
+        if (!window.confirm('开始考试后计时立即启动，确定现在开始吗？')) return;
+        try {
+            await API.post('/exams/' + examId + '/start/', {});
+            window.location.href = '/exams/' + examId + '/take/';
+        } catch (err) {
+            UI.error(UI.errorText(err));
+        }
+    }
+
+    async function load() {
+        const box = document.getElementById('exam-cards');
+        try {
+            const data = await API.get('/exams/', { page_size: 100 });
+            allRows = data.results || [];
+        } catch (err) {
+            box.innerHTML = '<div class="col-12 text-center text-danger py-5">' + esc(UI.errorText(err)) + '</div>';
+            return;
+        }
+        render();
+    }
+
+    document.querySelectorAll('#tabs button').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            tab = btn.dataset.tab;
+            render();
+        });
+    });
+    document.getElementById('btn-refresh').addEventListener('click', load);
+
+    load();
+})();
+</script>
+{% endblock %}

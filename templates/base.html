@@ -1,0 +1,243 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-CN" data-bs-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}{{ page_title|default:"首页" }} · AI 在线考试与学情分析系统{% endblock %}</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/style.css' %}?v=202610312327">
+    {% block extra_css %}{% endblock %}
+</head>
+<body class="d-flex flex-column min-vh-100">
+
+<!-- ================= 顶部导航 =================
+     角色分流顺序（**不可调换**）：admin → teacher → student。
+     历史缺陷 D-1 的根因就是先判 `is_teacher`：管理员天然满足 is_teacher
+     （见 apps/users/models.py:78-80），于是永远命中教师分支，管理端菜单成了死代码。
+     维护纪律：任何新增的角色分支都必须插在 `user.is_teacher` 之前。
+================================================================ -->
+<nav class="navbar navbar-expand-lg app-navbar sticky-top">
+    <div class="container">
+        <a class="navbar-brand d-flex align-items-center gap-2" href="{% url 'home' %}">
+            <span class="brand-mark">考</span>
+            <span class="brand-text">
+                AI 在线考试
+                <small class="d-block">与学情分析系统</small>
+            </span>
+        </a>
+
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="mainNav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item"><a class="nav-link" href="{% url 'home' %}"><i class="bi bi-house-door"></i> 首页</a></li>
+                {% if user.is_authenticated %}
+                    {% if user.is_admin %}
+                        {# ---------- 管理员：管理类菜单（一级） ---------- #}
+                        <li class="nav-item">
+                            <a class="nav-link{% if active_menu == 'manage-dashboard' %} active fw-semibold{% endif %}"
+                               href="{% url 'manage-dashboard' %}"><i class="bi bi-speedometer2"></i> 数据总览</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link{% if active_menu == 'manage-users' %} active fw-semibold{% endif %}"
+                               href="{% url 'manage-user-list' %}"><i class="bi bi-people"></i> 用户管理</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link{% if active_menu == 'manage-org' %} active fw-semibold{% endif %}"
+                               href="{% url 'manage-org' %}"><i class="bi bi-diagram-2"></i> 组织与基础数据</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link{% if active_menu == 'manage-system' %} active fw-semibold{% endif %}"
+                               href="{% url 'manage-system' %}"><i class="bi bi-sliders"></i> 系统配置</a>
+                        </li>
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle{% if is_teacher_page %} active fw-semibold{% endif %}"
+                               href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="bi bi-collection"></i> 教学管理（代管）
+                            </a>
+                            <ul class="dropdown-menu shadow">
+                                <li><a class="dropdown-item{% if active_menu == 'question-bank' %} active{% endif %}"
+                                       href="{% url 'question-bank' %}"><i class="bi bi-journal-text me-2"></i>题库</a></li>
+                                <li><a class="dropdown-item{% if active_menu == 'ai-generate' %} active{% endif %}"
+                                       href="{% url 'ai-generate' %}"><i class="bi bi-magic me-2"></i>AI 出题</a></li>
+                                <li><a class="dropdown-item{% if active_menu == 'knowledge-points' %} active{% endif %}"
+                                       href="{% url 'knowledge-points' %}"><i class="bi bi-diagram-3 me-2"></i>知识点</a></li>
+                                <li><a class="dropdown-item{% if active_menu == 'papers' %} active{% endif %}"
+                                       href="{% url 'paper-list' %}"><i class="bi bi-file-earmark-text me-2"></i>试卷</a></li>
+                                <li><a class="dropdown-item{% if active_menu == 'exams' %} active{% endif %}"
+                                       href="{% url 'exam-list' %}"><i class="bi bi-ui-checks me-2"></i>考试</a></li>
+                                <li><a class="dropdown-item{% if active_menu == 'grading' %} active{% endif %}"
+                                       href="{% url 'grading-workbench' %}"><i class="bi bi-clipboard-check me-2"></i>批改</a></li>
+                                <li><a class="dropdown-item{% if active_menu == 'analytics' %} active{% endif %}"
+                                       href="{% url 'analytics-dashboard' %}"><i class="bi bi-graph-up-arrow me-2"></i>学情</a></li>
+                                <li><a class="dropdown-item{% if active_menu == 'proctoring' %} active{% endif %}"
+                                       href="{% url 'proctoring-dashboard' %}"><i class="bi bi-shield-exclamation me-2"></i>作弊检测</a></li>
+                                <li><a class="dropdown-item{% if active_menu == 'classroom' %} active{% endif %}"
+                                       href="{% url 'classroom-list' %}"><i class="bi bi-people me-2"></i>班级</a></li>
+                            </ul>
+                        </li>
+                    {% elif user.is_teacher %}
+                        {# ---------- 教师：按领域分组的「功能地图」（首页负责待办，导航只负责去哪） ---------- #}
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle{% if active_menu == 'question-bank' or active_menu == 'ai-generate' or active_menu == 'knowledge-points' %} active fw-semibold{% endif %}"
+                               href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="bi bi-journal-text"></i> 教学资源
+                            </a>
+                            <ul class="dropdown-menu shadow">
+                                <li><a class="dropdown-item{% if active_menu == 'question-bank' %} active{% endif %}"
+                                       href="{% url 'question-bank' %}"><i class="bi bi-journal-text me-2"></i>题库</a></li>
+                                <li><a class="dropdown-item{% if active_menu == 'ai-generate' %} active{% endif %}"
+                                       href="{% url 'ai-generate' %}"><i class="bi bi-magic me-2"></i>AI 出题</a></li>
+                                <li><a class="dropdown-item{% if active_menu == 'knowledge-points' %} active{% endif %}"
+                                       href="{% url 'knowledge-points' %}"><i class="bi bi-diagram-3 me-2"></i>知识点</a></li>
+                            </ul>
+                        </li>
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle{% if active_menu == 'papers' or active_menu == 'exams' %} active fw-semibold{% endif %}"
+                               href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="bi bi-ui-checks"></i> 组卷与考试
+                            </a>
+                            <ul class="dropdown-menu shadow">
+                                <li><a class="dropdown-item{% if active_menu == 'papers' %} active{% endif %}"
+                                       href="{% url 'paper-list' %}"><i class="bi bi-file-earmark-text me-2"></i>试卷与组卷</a></li>
+                                <li><a class="dropdown-item{% if active_menu == 'exams' %} active{% endif %}"
+                                       href="{% url 'exam-list' %}"><i class="bi bi-ui-checks me-2"></i>考试管理</a></li>
+                            </ul>
+                        </li>
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle{% if active_menu == 'grading' or active_menu == 'analytics' or active_menu == 'proctoring' %} active fw-semibold{% endif %}"
+                               href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="bi bi-clipboard-check"></i> 批改与分析
+                            </a>
+                            <ul class="dropdown-menu shadow">
+                                <li><a class="dropdown-item{% if active_menu == 'grading' %} active{% endif %}"
+                                       href="{% url 'grading-workbench' %}"><i class="bi bi-clipboard-check me-2"></i>批改与成绩</a></li>
+                                <li><a class="dropdown-item{% if active_menu == 'analytics' %} active{% endif %}"
+                                       href="{% url 'analytics-dashboard' %}"><i class="bi bi-graph-up-arrow me-2"></i>学情分析</a></li>
+                                <li><a class="dropdown-item{% if active_menu == 'proctoring' %} active{% endif %}"
+                                       href="{% url 'proctoring-dashboard' %}"><i class="bi bi-shield-exclamation me-2"></i>作弊检测</a></li>
+                            </ul>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link{% if active_menu == 'classroom' %} active fw-semibold{% endif %}"
+                               href="{% url 'classroom-list' %}"><i class="bi bi-people"></i> 班级</a>
+                        </li>
+                    {% elif user.is_student %}
+                        <li class="nav-item">
+                            <a class="nav-link{% if active_menu == 'my-exams' %} active fw-semibold{% endif %}"
+                               href="{% url 'my-exams' %}"><i class="bi bi-pencil-square"></i> 我的考试</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link{% if active_menu == 'wrong-book' %} active fw-semibold{% endif %}"
+                               href="{% url 'wrong-book' %}"><i class="bi bi-journal-bookmark"></i> 错题本</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link{% if active_menu == 'my-analytics' %} active fw-semibold{% endif %}"
+                               href="{% url 'my-analytics' %}"><i class="bi bi-graph-up-arrow"></i> 我的学情</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link{% if active_menu == 'practice' %} active fw-semibold{% endif %}"
+                               href="{% url 'daily-practice' %}"><i class="bi bi-lightning-charge"></i> 每日练习</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link{% if active_menu == 'classroom' %} active fw-semibold{% endif %}"
+                               href="{% url 'classroom-list' %}"><i class="bi bi-people"></i> 我的班级</a>
+                        </li>
+                    {% endif %}
+                    {# 「接口文档」「Django 后台」不再占一级菜单，已收进 /manage/system/ 的开发者工具区块（U-7） #}
+                {% endif %}
+            </ul>
+
+            <ul class="navbar-nav align-items-lg-center">
+                {% if user.is_authenticated %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle d-flex align-items-center gap-2" href="#" role="button" data-bs-toggle="dropdown">
+                            {% if user.avatar %}
+                                <img src="{{ user.avatar.url }}" class="avatar-sm" alt="头像">
+                            {% else %}
+                                <span class="avatar-sm avatar-placeholder">{{ user.display_name|slice:":1" }}</span>
+                            {% endif %}
+                            <span>{{ user.display_name }}</span>
+                            <span class="badge role-badge role-{{ user.role }}">{{ user.get_role_display }}</span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end shadow">
+                            {% if user.is_admin %}
+                                <li><a class="dropdown-item" href="{% url 'manage-dashboard' %}"><i class="bi bi-speedometer2"></i> 管理控制台</a></li>
+                            {% endif %}
+                            <li><a class="dropdown-item" href="{% url 'profile-page' %}"><i class="bi bi-person-gear"></i> 个人中心</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <form method="post" action="{% url 'logout-page' %}" class="px-1">
+                                    {% csrf_token %}
+                                    <button type="submit" class="dropdown-item text-danger">
+                                        <i class="bi bi-box-arrow-right"></i> 退出登录
+                                    </button>
+                                </form>
+                            </li>
+                        </ul>
+                    </li>
+                {% else %}
+                    <li class="nav-item"><a class="nav-link" href="{% url 'login-page' %}">登录</a></li>
+                    <li class="nav-item ms-lg-2">
+                        <a class="btn btn-brand btn-sm px-3" href="{% url 'register-page' %}">免费注册</a>
+                    </li>
+                {% endif %}
+            </ul>
+        </div>
+    </div>
+</nav>
+
+{% comment %}
+代管提示条（AC-03）
+只有 TeacherPageMixin / ClassroomAccessMixin 在「管理员访问教师页」时
+才会把 is_delegated 置 True；教师自己访问不出现，视觉零变化（AC-04）。
+{% endcomment %}
+{% if is_delegated %}
+<div class="container mt-3">
+    <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2 py-2 small shadow-sm" role="alert">
+        <i class="bi bi-shield-exclamation"></i>
+        <span class="fw-semibold">你正在以管理员身份代管教学功能</span>
+        <span class="text-muted">本次操作将按管理员身份执行；如需回到管理视角，请使用下方面板。</span>
+        <a href="{% url 'manage-dashboard' %}" class="alert-link ms-auto text-decoration-none">
+            返回管理控制台 <i class="bi bi-arrow-right-short"></i>
+        </a>
+    </div>
+</div>
+{% endif %}
+
+<!-- ================= 消息提示 ================= -->
+<div class="toast-stack" id="toast-container"></div>
+
+{% if messages %}
+<div class="container mt-3">
+    {% for message in messages %}
+        <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags|default:'info' }}{% endif %} alert-dismissible fade show shadow-sm" role="alert">
+            <i class="bi bi-info-circle me-1"></i>{{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- ================= 主体 ================= -->
+<main class="flex-grow-1">
+    {% block content %}{% endblock %}
+</main>
+
+<!-- ================= 页脚 ================= -->
+<footer class="app-footer mt-auto py-4">
+    <div class="container d-flex flex-wrap justify-content-between gap-2 small">
+        <span>© 2026 <span class="brand-mini">在线考试与学情分析系统</span></span>
+        <span>严谨命题 · 公平考试 · 因材施教</span>
+    </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

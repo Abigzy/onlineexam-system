@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}注册 · AI 在线考试与学情分析系统{% endblock %}
+
+{% block content %}
+<div class="container auth-wrap py-5">
+    <div class="row justify-content-center w-100">
+        <div class="col-lg-11 col-xl-10">
+            <div class="auth-panel">
+                <div class="row g-0">
+
+                    <!-- 左侧：说明 -->
+                    <div class="col-lg-4 auth-aside">
+                        <h3 class="mb-3">学生注册<br>开启学习档案</h3>
+                        <p class="small mb-4" style="opacity:.85">
+                            注册后进入学生工作台，参加考试、查看成绩与学习画像
+                        </p>
+                        <div class="feature"><i class="bi bi-person-badge"></i><span><b>学生</b>：参加考试、查看成绩与学习画像</span></div>
+                        <div class="feature"><i class="bi bi-person-workspace"></i><span><b>教师</b>：账号由管理员创建，不开放自助注册</span></div>
+                        <div class="feature"><i class="bi bi-info-circle"></i><span>管理员账号请由运维在后台创建，注册入口不开放</span></div>
+                    </div>
+
+                    <!-- 右侧：注册表单 -->
+                    <div class="col-lg-8">
+                        <div class="auth-form">
+                            <h4 class="fw-bold mb-1">注册新账号</h4>
+                            <p class="text-muted small mb-4">带 <span class="text-danger">*</span> 的为必填项</p>
+
+                            {% if form.non_field_errors %}
+                                <div class="alert alert-danger py-2 small">
+                                    {% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
+                                </div>
+                            {% endif %}
+
+                            <form method="post" novalidate>
+                                {% csrf_token %}
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label">用户名 <span class="text-danger">*</span></label>
+                                        {{ form.username }}
+                                        {% for error in form.username.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">真实姓名 <span class="text-danger">*</span></label>
+                                        {{ form.real_name }}
+                                        {% for error in form.real_name.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">邮箱 <span class="text-danger">*</span></label>
+                                        {{ form.email }}
+                                        {% for error in form.email.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">注册类型</label>
+                                        <div class="form-control form-control-lg bg-body-secondary" aria-readonly="true">
+                                            学生
+                                        </div>
+                                        {# 角色字段保留但只有「学生」一个选项，渲染成隐藏域（D-5） #}
+                                        {{ form.role }}
+                                        <div class="form-text">教师账号由管理员创建，注册入口仅支持学生。</div>
+                                        {% for error in form.role.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">入学年级 <span class="text-danger">*</span></label>
+                                        {{ form.grade_year }}
+                                        <div class="form-text">学号由系统按「年级 + 顺位」自动派发，无需填写</div>
+                                        {% for error in form.grade_year.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">手机号</label>
+                                        {{ form.phone }}
+                                        {% for error in form.phone.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label">学校 / 院系</label>
+                                        {{ form.school }}
+                                        {% for error in form.school.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">密码 <span class="text-danger">*</span></label>
+                                        <div class="input-group">
+                                            {{ form.password }}
+                                            <button class="btn btn-outline-secondary" type="button"
+                                                    id="toggle-password" aria-pressed="false"
+                                                    aria-label="显示或隐藏密码" title="显示 / 隐藏密码">
+                                                <i class="bi bi-eye" id="toggle-password-icon"></i>
+                                            </button>
+                                        </div>
+                                        <div class="form-text">
+                                            至少 6 位，建议字母 + 数字组合；不能与用户名过于相似，不能是纯数字或常见弱密码。
+                                        </div>
+                                        {% for error in form.password.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">确认密码 <span class="text-danger">*</span></label>
+                                        <div class="input-group">
+                                            {{ form.password2 }}
+                                            <button class="btn btn-outline-secondary" type="button"
+                                                    id="toggle-password2" aria-pressed="false"
+                                                    aria-label="显示或隐藏确认密码" title="显示 / 隐藏密码">
+                                                <i class="bi bi-eye" id="toggle-password2-icon"></i>
+                                            </button>
+                                        </div>
+                                        <div class="form-text">请再次输入上面的密码，两次必须一致。</div>
+                                        {% for error in form.password2.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+                                    </div>
+                                </div>
+
+                                <button type="submit" class="btn btn-brand w-100 mt-4">
+                                    <i class="bi bi-person-plus me-1"></i> 注册并进入系统
+                                </button>
+                            </form>
+
+                            <p class="text-center text-muted small mt-4 mb-0">
+                                已有账号？<a href="{% url 'login-page' %}" class="fw-semibold text-decoration-none">直接登录</a>
+                            </p>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/* 密码可见性切换：两个密码框各自独立 */
+(function () {
+    'use strict';
+    function bindToggle(inputId, btnId, iconId) {
+        var input = document.getElementById(inputId);
+        var btn = document.getElementById(btnId);
+        var icon = document.getElementById(iconId);
+        if (!input || !btn || !icon) return;
+        btn.addEventListener('click', function () {
+            var show = input.type === 'password';
+            input.type = show ? 'text' : 'password';
+            icon.className = 'bi ' + (show ? 'bi-eye-slash' : 'bi-eye');
+            btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+            btn.setAttribute('title', show ? '隐藏密码' : '显示密码');
+            input.focus();
+            if (show && input.setSelectionRange) {
+                try { input.setSelectionRange(input.value.length, input.value.length); } catch (e) { /* ignore */ }
+            }
+        });
+    }
+    bindToggle('id_password', 'toggle-password', 'toggle-password-icon');
+    bindToggle('id_password2', 'toggle-password2', 'toggle-password2-icon');
+})();
+</script>
+{% endblock %}

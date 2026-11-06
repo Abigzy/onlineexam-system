@@ -1,0 +1,1133 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{{ page_title }} · AI 在线考试与学情分析系统{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 py-4" style="max-width: 1820px;">
+
+    <!-- ==================== 顶部 ==================== -->
+    <div class="page-head d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+        <div class="flex-grow-1" style="min-width: 280px;">
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <a class="btn btn-sm btn-outline-secondary" href="{% url 'paper-list' %}">
+                    <i class="bi bi-arrow-left"></i>
+                </a>
+                <input class="form-control form-control-lg fw-semibold border-0 px-0 shadow-none"
+                       id="paperTitle" style="max-width: 620px;"
+                       value="{{ paper_title }}" placeholder="给这份卷子起个名字…">
+                <span class="badge badge-soft-gray" id="statusBadge">{% if paper_id %}草稿{% else %}未创建{% endif %}</span>
+            </div>
+            <div class="text-muted small d-flex flex-wrap gap-3" id="headMeta">
+                <span><i class="bi bi-list-ol"></i> <span id="metaCount">0</span> 题</span>
+                <span><i class="bi bi-award"></i> <span id="metaScore">0</span> 分</span>
+                <span><i class="bi bi-clock"></i> <span id="metaDuration">90</span> 分钟</span>
+                <span><i class="bi bi-graph-up"></i> 目标难度 <span id="metaDifficulty">2.0</span></span>
+                <span class="text-primary" id="metaActual"></span>
+            </div>
+        </div>
+
+        <div class="d-flex flex-wrap gap-2">
+            <button class="btn btn-outline-secondary btn-sm" id="btnSaveTitle" {% if not paper_id %}disabled{% endif %}>
+                <i class="bi bi-save"></i> 保存卷头
+            </button>
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"
+                        id="btnExport" {% if not paper_id %}disabled{% endif %}>
+                    <i class="bi bi-printer"></i> 导出
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="#" data-export="html">卷面（可打印 HTML）</a></li>
+                    <li><a class="dropdown-item" href="#" data-export="html-answer">卷面 + 参考答案</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="#" data-export="md">Markdown 源码</a></li>
+                </ul>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" id="btnClone" {% if not paper_id %}disabled{% endif %}>
+                <i class="bi bi-files"></i> 复制
+            </button>
+            <button class="btn btn-outline-success btn-sm" id="btnPublish" {% if not paper_id %}disabled{% endif %}>
+                <i class="bi bi-send-check"></i> 发布
+            </button>
+        </div>
+    </div>
+
+    <!-- ==================== 三栏工作台 ==================== -->
+    <div class="compose-grid">
+
+        <!-- ---------------- 左栏：组卷条件 ---------------- -->
+        <div class="compose-left">
+            <div class="panel mb-3">
+                <div class="panel-head">
+                    <span><i class="bi bi-sliders text-primary"></i> 组卷条件</span>
+                    <span class="panel-sub">先试算，再生成</span>
+                </div>
+
+                <div class="panel-body">
+                    <label class="form-label small mb-1">学科 / 课程</label>
+                    <select class="form-select form-select-sm mb-3" id="composeSubject">
+                        <option value="">全部学科</option>
+                        {% for subject in subjects %}
+                            <option value="{{ subject }}" {% if subject == paper_subject %}selected{% endif %}>{{ subject }}</option>
+                        {% endfor %}
+                    </select>
+
+                    <label class="form-label small mb-1 d-flex justify-content-between">
+                        <span>考查知识点</span>
+                        <a href="#" class="text-decoration-none small" id="kpToggleAll">全选/清空</a>
+                    </label>
+                    <div class="kp-tree mb-1" id="kpTree">
+                        <div class="text-muted small py-2">加载中…</div>
+                    </div>
+                    <div class="form-text mb-3">不勾选表示全题库范围（含子知识点）</div>
+
+                    <label class="form-label small mb-1">组卷蓝图</label>
+                    <div class="blueprint-row text-muted" style="font-size: .74rem;">
+                        <span>题型</span><span class="text-center">题数</span>
+                        <span class="text-center">每题分</span><span></span>
+                    </div>
+                    <div id="blueprintRows"></div>
+                    <div class="d-flex justify-content-between align-items-center mt-2 mb-3">
+                        <button class="btn btn-sm btn-outline-secondary" id="btnAddRow">
+                            <i class="bi bi-plus-lg"></i> 加大题
+                        </button>
+                        <span class="small text-muted">合计 <strong id="blueprintTotal">0</strong> 分</span>
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label small mb-1">目标难度</label>
+                            <select class="form-select form-select-sm" id="composeDifficulty">
+                                {% for item in difficulty_choices %}
+                                    <option value="{{ item.value }}" {% if item.value == 2 %}selected{% endif %}>
+                                        {{ item.label }}（{{ item.value }}）</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-1">考试时长</label>
+                            <input type="number" class="form-control form-control-sm" id="composeDuration"
+                                   value="90" min="1" max="600">
+                        </div>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-outline-primary btn-sm" id="btnPreview">
+                            <i class="bi bi-calculator"></i> 试算（不落库）
+                        </button>
+                        <button class="btn btn-brand btn-sm" id="btnCompose">
+                            <i class="bi bi-magic"></i> AI 智能组卷
+                        </button>
+                    </div>
+
+                    <hr class="my-3">
+
+                    <div class="small fw-semibold mb-2">随机组卷（不调 AI）</div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6">
+                            <label class="form-label small mb-1">题量</label>
+                            <input type="number" class="form-control form-control-sm" id="composeRandomCount"
+                                   value="20" min="1" max="200">
+                        </div>
+                    </div>
+                    <div class="form-text mb-2">只按所选知识点随机抽题，题型配比由题库库存自动决定，不生成 AI 说明。</div>
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-outline-secondary btn-sm" id="btnRandomCompose">
+                            <i class="bi bi-shuffle"></i> 随机组卷
+                        </button>
+                    </div>
+                </div>
+
+                <div class="panel-body d-none" id="previewBox">
+                    <div class="small fw-semibold mb-2"><i class="bi bi-clipboard-check"></i> 试算结果</div>
+                    <div id="previewBody" class="small"></div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-head">
+                    <span><i class="bi bi-box-seam text-primary"></i> 题库家底</span>
+                    <button class="btn btn-sm btn-link p-0 panel-sub" id="btnReloadPool">刷新</button>
+                </div>
+                <div class="panel-body">
+                    <div id="poolBody" class="text-muted small">加载中…</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ---------------- 中栏：卷面 ---------------- -->
+        <div class="compose-center">
+            <div class="panel">
+                <div class="panel-head">
+                    <span><i class="bi bi-file-text text-primary"></i> 卷面预览</span>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-secondary" id="btnOpenPicker">
+                            <i class="bi bi-plus-circle"></i> 从题库加题
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-body" id="sheetBody">
+                    <div class="text-center text-muted py-5">
+                        <i class="bi bi-arrow-left-circle fs-3 d-block mb-2"></i>
+                        {% if paper_id %}加载中…{% else %}
+                            还没有试卷。可以直接点上方「从题库加题」手动挑题组卷，
+                            或在左侧配好组卷条件后点「生成试卷」。
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ---------------- 右栏：质量分析 ---------------- -->
+        <div class="compose-right">
+            <div class="panel mb-3">
+                <div class="panel-head">
+                    <span><i class="bi bi-pie-chart text-primary"></i> 组卷质量</span>
+                    <button class="btn btn-sm btn-link p-0 panel-sub" id="btnReloadAnalysis">刷新</button>
+                </div>
+                <div class="panel-body" id="warnBody">
+                    <div class="text-muted small">暂无数据</div>
+                </div>
+                <div class="panel-body">
+                    <div class="small fw-semibold mb-2">知识点覆盖</div>
+                    <div class="chart-box-tall" id="radarChart"></div>
+                </div>
+                <div class="panel-body">
+                    <div class="small fw-semibold mb-2">难度分布</div>
+                    <div class="chart-box" id="difficultyChart"></div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-head">
+                    <span><i class="bi bi-stars text-primary"></i> 组卷说明（AI）</span>
+                    <button class="btn btn-sm btn-outline-primary" id="btnNotes"
+                            {% if not paper_id %}disabled{% endif %}>
+                        <i class="bi bi-arrow-repeat"></i> 生成
+                    </button>
+                </div>
+                <div class="panel-body">
+                    <div class="notes-body text-muted" id="notesBody">
+                        {% if paper_id %}还没有组卷说明，点右上角「生成」。{% else %}生成试卷后可让 AI 写一份组卷说明。{% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 加题弹窗 ==================== -->
+<div class="modal fade" id="pickerModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-plus-circle"></i> 从题库选题目</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-2 mb-3">
+                    <div class="col-6 col-md-2">
+                        <select class="form-select form-select-sm" id="pickType">
+                            <option value="">全部题型</option>
+                            {% for item in question_types %}
+                                <option value="{{ item.value }}">{{ item.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <select class="form-select form-select-sm" id="pickDifficulty">
+                            <option value="">全部难度</option>
+                            {% for item in difficulty_choices %}
+                                <option value="{{ item.value }}">{{ item.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <input class="form-control form-control-sm" id="pickKeyword" placeholder="题干关键字">
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <input type="number" class="form-control form-control-sm" id="pickScore"
+                               placeholder="统一分值" step="0.5" min="0.5">
+                    </div>
+                    <div class="col-6 col-md-3 d-flex gap-2">
+                        <button class="btn btn-brand btn-sm flex-grow-1" id="btnPickSearch">
+                            <i class="bi bi-search"></i> 搜索
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" id="btnPickReset">重置</button>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="small text-muted" id="pickSummary">—</span>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-secondary" id="btnPickPagePrev">上一页</button>
+                        <span class="small align-self-center" id="pickPageInfo">1 / 1</span>
+                        <button class="btn btn-sm btn-outline-secondary" id="btnPickPageNext">下一页</button>
+                    </div>
+                </div>
+
+                <div id="pickList" style="min-height: 220px;"></div>
+            </div>
+            <div class="modal-footer justify-content-between">
+                <span class="small">已选 <strong id="pickCount">0</strong> 道</span>
+                <div>
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-brand" id="btnPickAdd">加入试卷</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(() => {
+    // ================================================================
+    // 状态
+    // ================================================================
+    const state = {
+        paperId: {{ paper_id|default:"null" }},
+        detail: null,
+        report: null,
+        kpTree: [],
+        selectedKps: new Set(),
+        blueprint: [],
+        charts: { radar: null, difficulty: null },
+        pick: { page: 1, count: 0, selected: new Map() },
+    };
+
+    const DEFAULT_BLUEPRINT = [
+        { type: "single", count: 10, score: 2 },
+        { type: "multiple", count: 5, score: 3 },
+        { type: "judge", count: 10, score: 1 },
+        { type: "fill", count: 5, score: 2 },
+        { type: "short", count: 3, score: 10 },
+        { type: "essay", count: 1, score: 15 },
+    ];
+
+    const TYPE_LABEL = {{ question_types|safe|default:"[]" }};
+    const TYPE_LABEL_MAP = Object.fromEntries((TYPE_LABEL || []).map(t => [t.value, t.label]));
+    const STATUS_BADGE = {
+        draft: ["badge-soft-gray", "草稿"],
+        published: ["badge-soft-teal", "已发布"],
+        archived: ["badge-soft-gray", "已归档"],
+    };
+
+    const esc = (text) => String(text ?? "").replace(/[&<>"']/g,
+        (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+    const $ = (id) => document.getElementById(id);
+    const fmt = (value) => {
+        const number = Number(value || 0);
+        return Number.isInteger(number) ? String(number) : number.toFixed(1);
+    };
+
+    // ================================================================
+    // 左栏：知识点 / 蓝图 / 题库家底
+    // ================================================================
+    async function loadKnowledgeTree() {
+        try {
+            const tree = await API.get("/knowledge-points/tree/");
+            state.kpTree = tree || [];
+            const flat = [];
+            const walk = (nodes, depth) => (nodes || []).forEach(node => {
+                flat.push({ id: node.id, name: node.name, depth, subject: node.subject });
+                walk(node.children, depth + 1);
+            });
+            walk(tree, 0);
+            $("kpTree").innerHTML = flat.length ? flat.map(node => `
+                <label class="${node.depth ? "kp-child" : ""}">
+                    <input type="checkbox" value="${node.id}" data-kp> ${esc(node.name)}
+                    <span class="text-muted" style="font-size:.76rem;">${esc(node.subject || "")}</span>
+                </label>`).join("") : '<div class="text-muted small py-2">还没有知识点</div>';
+        } catch (err) {
+            $("kpTree").innerHTML = '<div class="text-danger small py-2">加载失败</div>';
+            UI.error(err);
+        }
+    }
+
+    function renderBlueprint() {
+        $("blueprintRows").innerHTML = state.blueprint.map((row, index) => `
+            <div class="blueprint-row">
+                <select class="form-select form-select-sm" data-bp-type="${index}">
+                    ${TYPE_LABEL.map(t => `<option value="${t.value}" ${t.value === row.type ? "selected" : ""}>
+                        ${esc(t.label)}</option>`).join("")}
+                </select>
+                <input type="number" class="form-control form-control-sm" data-bp-count="${index}"
+                       value="${row.count}" min="1" max="100">
+                <input type="number" class="form-control form-control-sm" data-bp-score="${index}"
+                       value="${row.score}" min="0.5" step="0.5">
+                <button class="btn btn-sm btn-link text-danger p-0" data-bp-remove="${index}">
+                    <i class="bi bi-x-lg"></i></button>
+            </div>`).join("");
+        const total = state.blueprint.reduce((sum, row) => sum + Number(row.count) * Number(row.score), 0);
+        $("blueprintTotal").textContent = fmt(total);
+    }
+
+    async function loadPool() {
+        const params = new URLSearchParams();
+        const subject = $("composeSubject").value;
+        if (subject) params.set("subject", subject);
+        state.selectedKps.forEach(id => params.append("knowledge_point_ids", id));
+
+        $("poolBody").innerHTML = '<span class="text-muted">加载中…</span>';
+        try {
+            const data = await API.get("/papers/pool/?" + params.toString());
+            if (!data.by_type || !data.by_type.length) {
+                // 说明「为什么空」：只写「没有可用题目」时，勾了知识点的教师会以为系统坏了
+                const picked = state.selectedKps.size;
+                const hint = picked
+                    ? `所选 ${picked} 个知识点下没有可用题目，可以少选几个或换学科试试`
+                    : "当前条件下题库里没有可用题目";
+                $("poolBody").innerHTML = `<span class="text-danger">${hint}</span>`;
+                return;
+            }
+            const header = ["题型", "简单", "中等", "困难", "挑战", "合计"];
+            const rows = data.by_type.map(row => {
+                const cells = ["1", "2", "3", "4"].map(level => {
+                    const value = row.by_difficulty[level] || 0;
+                    return `<td class="${value ? "" : "pool-empty"}">${value}</td>`;
+                }).join("");
+                return `<tr><td class="text-start">${esc(row.label)}</td>${cells}
+                    <td class="fw-semibold">${row.total}</td></tr>`;
+            }).join("");
+            $("poolBody").innerHTML = `
+                <table class="pool-table">
+                    <thead><tr>${header.map(h => `<th>${h}</th>`).join("")}</tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+                <div class="text-muted mt-2" style="font-size:.78rem;">
+                    共 ${data.total} 道可用题；红色表示该难度档暂无题目，组卷时会自动用相邻难度补位。
+                </div>`;
+        } catch (err) {
+            $("poolBody").innerHTML = '<span class="text-danger">加载失败</span>';
+            UI.error(err);
+        }
+    }
+
+    // ================================================================
+    // 中栏：卷面
+    // ================================================================
+    async function loadPaper() {
+        if (!state.paperId) return;
+        try {
+            const detail = await API.get(`/papers/${state.paperId}/`);
+            state.detail = detail;
+            applyHead(detail);
+            renderSheet();
+            // 卷面已经刷新成功，分析失败不该盖掉这条链路（silent 只打 console）
+            loadAnalysis({ silent: true });
+            renderNotes(detail.ai_notes);
+        } catch (err) {
+            UI.error(err);
+        }
+    }
+
+    function applyHead(detail) {
+        $("paperTitle").value = detail.title;
+        $("metaCount").textContent = detail.question_count;
+        $("metaScore").textContent = fmt(detail.total_score);
+        $("metaDuration").textContent = detail.duration_minutes;
+        $("metaDifficulty").textContent = Number(detail.target_difficulty).toFixed(1);
+        $("metaActual").textContent = detail.question_count
+            ? `实际 ${detail.actual_difficulty}` : "";
+        $("composeDuration").value = detail.duration_minutes;
+
+        const [cls, label] = STATUS_BADGE[detail.status] || ["badge-soft-gray", detail.status_display];
+        const badge = $("statusBadge");
+        badge.className = "badge " + cls;
+        badge.textContent = label;
+
+        const publishable = detail.status === "draft";
+        $("btnPublish").disabled = !publishable;
+        $("btnPublish").innerHTML = publishable
+            ? '<i class="bi bi-send-check"></i> 发布'
+            : '<i class="bi bi-arrow-counterclockwise"></i> 退回草稿';
+        $("btnPublish").className = publishable
+            ? "btn btn-outline-success btn-sm" : "btn btn-outline-warning btn-sm";
+    }
+
+    function renderSheet() {
+        const detail = state.detail;
+        if (!detail) return;
+        const sections = (detail.sections || []).filter(section => section.question_count > 0);
+
+        if (!sections.length) {
+            $("sheetBody").innerHTML = `
+                <div class="text-center text-muted py-5">
+                    <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+                    这份卷子还没有题目。点上方「从题库加题」，或在左侧重新组卷。
+                </div>`;
+            return;
+        }
+
+        // 详情接口的 sections 只给大题本身，题目在扁平的 paper_questions 里（带 section_id）。
+        // 这里按大题分组，别指望 section.questions——那个字段不存在，取到 undefined 会直接抛异常。
+        const bySection = new Map();
+        (detail.paper_questions || []).forEach(item => {
+            const key = item.section_id;
+            if (!bySection.has(key)) bySection.set(key, []);
+            bySection.get(key).push(item);
+        });
+
+        $("sheetBody").innerHTML = sections.map(section => `
+            <div class="section-block" data-section="${section.id}">
+                <div class="section-title">
+                    <span>${esc(section.label)}</span>
+                    <span class="text-muted small">大题说明：${esc(section.description || "—")}</span>
+                </div>
+                ${(bySection.get(section.id) || []).map(renderQuestion).join("")}
+            </div>`).join("");
+    }
+
+    function renderQuestion(item) {
+        const options = (item.options || []).map(option => `
+            <div>${esc(option.label)}. ${esc(option.content)}
+                ${option.is_correct ? '<i class="bi bi-check-circle-fill text-success ms-1"></i>' : ""}</div>`).join("");
+        const knowledge = (item.knowledge_points || []).map(kp => esc(kp.name)).join("、") || "未标注";
+        const answer = esc(item.reference_answer || "").replace(/\n/g, " / ");
+
+        return `
+        <div class="paper-q" data-pq="${item.id}">
+            <div class="q-head">
+                <div class="flex-grow-1">
+                    <div>
+                        <span class="q-index">${item.order}</span>
+                        <span class="type-tag type-${item.question_type}">${esc(item.type_display)}</span>
+                        <span class="q-stem">${esc(item.stem)}</span>
+                    </div>
+                    ${options ? `<div class="q-opts">${options}</div>` : ""}
+                    <div class="q-meta">
+                        答案：<strong>${answer || "—"}</strong>
+                        · 难度 ${esc(item.difficulty_display)}
+                        · ${knowledge}
+                        · 已使用 ${item.usage_count} 次
+                    </div>
+                </div>
+                <div class="d-flex align-items-center gap-1">
+                    <input type="number" class="form-control form-control-sm q-score"
+                           value="${item.score}" step="0.5" min="0.5" data-score-for="${item.id}"
+                           title="本题分值">
+                    <button class="btn btn-sm btn-outline-secondary" data-move="up" data-pq="${item.id}"
+                            title="上移"><i class="bi bi-arrow-up"></i></button>
+                    <button class="btn btn-sm btn-outline-secondary" data-move="down" data-pq="${item.id}"
+                            title="下移"><i class="bi bi-arrow-down"></i></button>
+                    <button class="btn btn-sm btn-outline-danger" data-remove-pq="${item.id}"
+                            title="移出试卷"><i class="bi bi-trash3"></i></button>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    // ================================================================
+    // 右栏：分析
+    // ================================================================
+    /**
+     * 拉组卷质量分析。
+     * ``silent`` 用于「建卷/组卷之后的自动刷新」——分析只是辅助信息，
+     * 接口挂了也不该让用户以为整次操作失败（手动点「刷新」时才弹错）。
+     */
+    async function loadAnalysis({ silent = false } = {}) {
+        if (!state.paperId) return;
+        try {
+            const report = await API.get(`/papers/${state.paperId}/analysis/`);
+            state.report = report;
+            renderWarnings(report.warnings || []);
+            renderRadar(report.knowledge_coverage || {});
+            renderDifficulty(report.difficulty_distribution || []);
+        } catch (err) {
+            if (silent) {
+                console.warn("组卷质量分析加载失败，已忽略：", err.message);
+                $("warnBody").innerHTML =
+                    '<div class="warn-item info">质量分析暂时不可用，不影响继续加题。</div>';
+                return;
+            }
+            UI.error(err);
+        }
+    }
+
+    function renderWarnings(warnings) {
+        if (!warnings.length) {
+            $("warnBody").innerHTML = '<div class="warn-item info">' +
+                '<i class="bi bi-check-circle"></i> 未检测到问题，整卷结构健康。</div>';
+            return;
+        }
+        $("warnBody").innerHTML = warnings.map(item => `
+            <div class="warn-item ${esc(item.level)}">
+                ${esc(item.message)}
+            </div>`).join("");
+    }
+
+    function ensureChart(key, elementId) {
+        if (!window.echarts) return null;
+        if (!state.charts[key]) {
+            const element = $(elementId);
+            element.innerHTML = "";
+            state.charts[key] = echarts.init(element);
+        }
+        return state.charts[key];
+    }
+
+    function renderRadar(coverage) {
+        const indicators = coverage.indicators || [];
+        if (!indicators.length) {
+            $("radarChart").innerHTML = '<div class="text-muted small text-center pt-5">暂无知识点数据</div>';
+            return;
+        }
+        // 雷达轴太多会糊成一团，只画考查最多的前 8 个知识点
+        const top = indicators.slice(0, 8);
+        const values = (coverage.values || []).slice(0, 8);
+        const chart = ensureChart("radar", "radarChart");
+        if (!chart) return;
+        chart.setOption({
+            tooltip: {},
+            radar: {
+                indicator: top,
+                radius: "62%",
+                splitNumber: 4,
+                axisName: { fontSize: 11, color: "#475569" },
+                splitLine: { lineStyle: { color: "#e2e8f0" } },
+                splitArea: { areaStyle: { color: ["#fcfdff", "#f8fafc"] } },
+                axisLine: { lineStyle: { color: "#e2e8f0" } },
+            },
+            series: [{
+                type: "radar",
+                data: [{ value: values, name: "本卷题量" }],
+                areaStyle: { color: "rgba(99,102,241,.22)" },
+                lineStyle: { color: "#6366f1", width: 2 },
+                itemStyle: { color: "#6366f1" },
+            }],
+        }, true);
+        chart.resize();
+    }
+
+    function renderDifficulty(rows) {
+        const chart = ensureChart("difficulty", "difficultyChart");
+        if (!chart) return;
+        chart.setOption({
+            grid: { left: 42, right: 12, top: 22, bottom: 26 },
+            tooltip: { trigger: "axis" },
+            xAxis: {
+                type: "category",
+                data: rows.map(row => row.label),
+                axisLabel: { fontSize: 11, color: "#475569" },
+                axisLine: { lineStyle: { color: "#e2e8f0" } },
+            },
+            yAxis: {
+                type: "value",
+                name: "题量",
+                nameTextStyle: { fontSize: 10, color: "#94a3b8" },
+                axisLabel: { fontSize: 11, color: "#475569" },
+                splitLine: { lineStyle: { color: "#f1f5f9" } },
+            },
+            series: [{
+                type: "bar",
+                data: rows.map(row => ({
+                    value: row.count,
+                    itemStyle: { color: ["#34d399", "#60a5fa", "#f59e0b", "#ef4444"][row.value - 1] },
+                })),
+                barWidth: "46%",
+                label: { show: true, position: "top", fontSize: 11, color: "#475569" },
+                itemStyle: { borderRadius: [6, 6, 0, 0] },
+            }],
+        }, true);
+        chart.resize();
+    }
+
+    function renderNotes(notes) {
+        if (!notes) {
+            $("notesBody").className = "notes-body text-muted";
+            $("notesBody").innerHTML = "还没有组卷说明，点右上角「生成」。";
+            return;
+        }
+        // 轻量 Markdown 渲染：只处理标题、粗体、列表、引用——够用且零依赖
+        const html = esc(notes)
+            .replace(/^### (.*)$/gm, "<strong>$1</strong>")
+            .replace(/^## (.*)$/gm, "<strong>$1</strong>")
+            .replace(/^# (.*)$/gm, "<strong>$1</strong>")
+            .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+            .replace(/^&gt; (.*)$/gm, '<span class="text-muted">$1</span>')
+            .replace(/^- (.*)$/gm, "· $1");
+        $("notesBody").className = "notes-body";
+        $("notesBody").innerHTML = html;
+    }
+
+    // ================================================================
+    // 智能组卷
+    // ================================================================
+    function composePayload() {
+        return {
+            title: $("paperTitle").value.trim(),
+            subject: $("composeSubject").value,
+            knowledge_point_ids: [...state.selectedKps],
+            blueprint: state.blueprint.map(row => ({
+                type: row.type, count: Number(row.count), score: Number(row.score),
+            })),
+            target_difficulty: Number($("composeDifficulty").value),
+            duration_minutes: Number($("composeDuration").value),
+        };
+    }
+
+    async function doPreview() {
+        UI.setBusy($("btnPreview"), true);
+        try {
+            const report = await API.post("/papers/ai-compose/", {
+                ...composePayload(), dry_run: true,
+            });
+            renderPreview(report);
+        } catch (err) {
+            UI.error(err);
+        } finally {
+            UI.setBusy($("btnPreview"), false);
+        }
+    }
+
+    function renderPreview(report) {
+        $("previewBox").classList.remove("d-none");
+        const difficulty = report.difficulty || {};
+        const rows = (report.picked && report.picked.score_by_type) || [];
+
+        const typeRows = rows.map(row => {
+            const enough = row.count >= row.requested;
+            return `<tr>
+                <td class="text-start">${esc(row.label)}</td>
+                <td class="${enough ? "" : "pool-empty"}">${row.count}/${row.requested}</td>
+                <td>${row.available}</td>
+            </tr>`;
+        }).join("");
+
+        const notices = [].concat(
+            (report.shortage || []).map(row => `<div class="warn-item error">${esc(row.message)}</div>`),
+            (report.adjusted || []).map(row => `<div class="warn-item warning">${esc(row.message)}</div>`),
+        ).join("") || '<div class="warn-item info">题库充足，可以按蓝图正常组卷。</div>';
+
+        $("previewBody").innerHTML = `
+            <div class="mb-2">
+                可组出 <strong>${report.picked.question_count}</strong> 题 /
+                <strong>${fmt(report.picked.total_score)}</strong> 分，
+                实际难度 <strong>${difficulty.weighted_average}</strong>
+                （目标 ${difficulty.target}，偏差 ${difficulty.deviation > 0 ? "+" : ""}${difficulty.deviation}）
+                ，覆盖 <strong>${report.knowledge.covered}</strong> 个知识点。
+            </div>
+            <table class="pool-table mb-2">
+                <thead><tr><th class="text-start">题型</th><th>实得/需要</th><th>库存</th></tr></thead>
+                <tbody>${typeRows}</tbody>
+            </table>
+            ${notices}`;
+    }
+
+    // ================================================================
+    // 建卷后的统一开关
+    // AI 组卷与纯手动组卷都走这里，避免两处按钮列表各写一份、早晚不同步
+    // ================================================================
+    function enablePaperEditing(paper) {
+        state.paperId = paper.id;
+        state.detail = paper;
+        applyHead(paper);                 // 卷头 + 发布按钮：发/退回草稿由试卷状态决定，不在这里硬写
+        renderSheet();
+        renderNotes(paper.ai_notes);
+
+        // 换成可编辑地址，刷新后仍能回到这份卷子
+        window.history.replaceState({}, "", `/papers/${paper.id}/compose/`);
+        ["btnSaveTitle", "btnExport", "btnClone", "btnOpenPicker", "btnNotes"]
+            .forEach(id => { $(id).disabled = false; });
+    }
+
+    /**
+     * 纯手动组卷：还没有试卷时先落一份空卷。
+     * 返回是否已具备编辑条件——false 表示建卷失败，调用方不要再打开选题器。
+     */
+    async function ensurePaper() {
+        if (state.paperId) return true;
+
+        // 只带卷头四字段：blueprint / knowledge_point_ids 是 AI 组卷专用参数，
+        // 整个 composePayload() 丢给 /papers/ 属于越界传参
+        const payload = {
+            title: $("paperTitle").value.trim() || "未命名试卷",
+            subject: $("composeSubject").value,
+            duration_minutes: Number($("composeDuration").value),
+            target_difficulty: Number($("composeDifficulty").value),
+        };
+        try {
+            const paper = await API.post("/papers/", payload);
+            enablePaperEditing(paper);
+            // 分析只是辅助信息：接口失败不能拦住建卷和加题（silent 只打 console 不弹错）
+            loadAnalysis({ silent: true });
+            UI.toast(`已创建《${paper.title}》，现在可以从题库挑题了`, "success");
+            return true;
+        } catch (err) {
+            UI.error(err);
+            return false;
+        }
+    }
+
+    async function doCompose() {
+        UI.setBusy($("btnCompose"), true);
+        try {
+            const data = await API.post("/papers/ai-compose/", {
+                ...composePayload(), generate_notes: true,
+            });
+            enablePaperEditing(data.paper);
+            renderPreview(data.report);
+            // 同一原则：卷子已经生成成功，分析失败不该把整次操作判为失败
+            loadAnalysis({ silent: true });
+            UI.toast(`已生成《${data.paper.title}》`, "success");
+        } catch (err) {
+            UI.error(err);
+        } finally {
+            UI.setBusy($("btnCompose"), false);
+        }
+    }
+
+    async function doRandomCompose() {
+        UI.setBusy($("btnRandomCompose"), true);
+        try {
+            const data = await API.post("/papers/random-compose/", {
+                title: $("paperTitle").value.trim(),
+                subject: $("composeSubject").value,
+                knowledge_point_ids: [...state.selectedKps],
+                total_count: Number($("composeRandomCount").value),
+                target_difficulty: Number($("composeDifficulty").value),
+                duration_minutes: Number($("composeDuration").value),
+            });
+            enablePaperEditing(data.paper);
+            renderPreview(data.report);
+            loadAnalysis({ silent: true });
+            UI.toast(`已随机生成《${data.paper.title}》`, "success");
+        } catch (err) {
+            UI.error(err);
+        } finally {
+            UI.setBusy($("btnRandomCompose"), false);
+        }
+    }
+
+    // ================================================================
+    // 卷面编辑
+    // ================================================================
+    async function removeQuestion(paperQuestionId) {
+        if (!confirm("把这道题移出试卷？")) return;
+        try {
+            const data = await API.post(
+                `/papers/${state.paperId}/remove-questions/`, { ids: [paperQuestionId] });
+            UI.toast(`已移出 ${data.removed_count} 道题`, "success");
+            await loadPaper();
+        } catch (err) {
+            UI.error(err);
+        }
+    }
+
+    async function updateScore(paperQuestionId, score) {
+        try {
+            await API.post(`/papers/${state.paperId}/scores/`,
+                { items: [{ id: paperQuestionId, score: Number(score) }] });
+            const detail = await API.get(`/papers/${state.paperId}/`);
+            state.detail = detail;
+            applyHead(detail);
+            loadAnalysis();
+        } catch (err) {
+            UI.error(err);
+            loadPaper();
+        }
+    }
+
+    async function moveQuestion(paperQuestionId, direction) {
+        const items = [];
+        (state.detail.sections || []).forEach(section => {
+            (section.questions || []).forEach(question => items.push(question.id));
+        });
+        const index = items.indexOf(paperQuestionId);
+        const target = direction === "up" ? index - 1 : index + 1;
+        if (index < 0 || target < 0 || target >= items.length) return;
+        [items[index], items[target]] = [items[target], items[index]];
+
+        try {
+            await API.post(`/papers/${state.paperId}/reorder/`, { ordered_ids: items });
+            await loadPaper();
+        } catch (err) {
+            UI.error(err);
+        }
+    }
+
+    async function saveHead() {
+        try {
+            await API.patch(`/papers/${state.paperId}/`, {
+                title: $("paperTitle").value.trim(),
+                subject: $("composeSubject").value,
+                duration_minutes: Number($("composeDuration").value),
+                target_difficulty: Number($("composeDifficulty").value),
+            });
+            UI.toast("已保存", "success");
+            loadPaper();
+        } catch (err) {
+            UI.error(err);
+        }
+    }
+
+    async function toggleStatus() {
+        const next = state.detail.status === "draft" ? "published" : "draft";
+        if (next === "published" && !confirm("发布后这份卷子将不能随意修改，确定发布？")) return;
+        try {
+            await API.post(`/papers/${state.paperId}/status/`, { status: next });
+            UI.toast(next === "published" ? "已发布" : "已退回草稿", "success");
+            loadPaper();
+        } catch (err) {
+            UI.error(err);
+        }
+    }
+
+    async function clonePaper() {
+        try {
+            const data = await API.post(`/papers/${state.paperId}/clone/`, {});
+            UI.toast(`已复制为《${data.title}》`, "success");
+            window.location.href = `/papers/${data.id}/compose/`;
+        } catch (err) {
+            UI.error(err);
+        }
+    }
+
+    async function generateNotes() {
+        UI.setBusy($("btnNotes"), true);
+        try {
+            const data = await API.post(`/papers/${state.paperId}/ai-notes/`, {});
+            renderNotes(data.notes);
+            UI.toast(data.cached ? "已是最新说明" : "组卷说明已生成", "success");
+        } catch (err) {
+            UI.error(err);
+        } finally {
+            UI.setBusy($("btnNotes"), false);
+        }
+    }
+
+    function exportPaper(kind) {
+        const base = `/api/v1/papers/${state.paperId}/export/`;
+        const url = kind === "md" ? base + "?file_format=md&with_answer=true"
+            : kind === "html-answer" ? base + "?with_answer=true" : base;
+        window.open(url, "_blank");
+    }
+
+    // ================================================================
+    // 加题弹窗
+    // ================================================================
+    async function searchQuestions() {
+        const params = new URLSearchParams();
+        const type = $("pickType").value;
+        const difficulty = $("pickDifficulty").value;
+        const keyword = $("pickKeyword").value.trim();
+        if (type) params.set("type", type);
+        if (difficulty) params.set("difficulty", difficulty);
+        if (keyword) params.set("search", keyword);
+        params.set("page", state.pick.page);
+
+        $("pickList").innerHTML = '<div class="text-center text-muted py-5">' +
+            '<span class="spinner-border spinner-border-sm"></span></div>';
+        try {
+            const data = await API.get("/questions/?" + params.toString());
+            renderPickList(data);
+        } catch (err) {
+            UI.error(err);
+            $("pickList").innerHTML = '<div class="text-danger text-center py-5">加载失败</div>';
+        }
+    }
+
+    function renderPickList(data) {
+        const rows = data.results || [];
+        $("pickSummary").textContent = `共 ${data.count} 道`;
+        $("pickPageInfo").textContent = `${data.page} / ${data.total_pages || 1}`;
+
+        if (!rows.length) {
+            $("pickList").innerHTML = '<div class="text-center text-muted py-5">没有匹配的题目</div>';
+            return;
+        }
+        $("pickList").innerHTML = rows.map(row => {
+            const checked = state.pick.selected.has(row.id) ? "checked" : "";
+            const knowledge = (row.knowledge_points || []).map(kp => esc(kp.name)).join("、");
+            return `
+            <label class="d-flex gap-2 align-items-start border rounded-3 p-2 mb-2"
+                   style="cursor:pointer; background:#fcfdff;">
+                <input type="checkbox" class="mt-1" data-pick="${row.id}" ${checked}>
+                <span class="flex-grow-1">
+                    <span class="type-tag type-${row.type}">${esc(row.type_display)}</span>
+                    <span style="font-size:.88rem;">${esc(row.stem)}</span>
+                    <span class="d-block text-muted" style="font-size:.76rem;">
+                        ${esc(row.difficulty_display)} · ${esc(row.subject || "未指定")}
+                        · ${knowledge || "未标注知识点"} · 已用 ${row.usage_count} 次
+                    </span>
+                </span>
+            </label>`;
+        }).join("");
+    }
+
+    async function addPicked() {
+        if (!state.pick.selected.size) {
+            UI.toast("请先勾选题目", "warning");
+            return;
+        }
+        const payload = {
+            question_ids: [...state.pick.selected.keys()],
+            strict: false,
+        };
+        const score = $("pickScore").value;
+        if (score) payload.score = Number(score);
+
+        UI.setBusy($("btnPickAdd"), true);
+        try {
+            const data = await API.post(`/papers/${state.paperId}/questions/`, payload);
+            let message = `已添加 ${data.added_count} 道题`;
+            if (data.duplicated_count) message += `，跳过 ${data.duplicated_count} 道重复题`;
+            UI.toast(message, "success");
+            state.pick.selected.clear();
+            $("pickCount").textContent = "0";
+            bootstrap.Modal.getInstance($("pickerModal")).hide();
+            await loadPaper();
+        } catch (err) {
+            UI.error(err);
+        } finally {
+            UI.setBusy($("btnPickAdd"), false);
+        }
+    }
+
+    // ================================================================
+    // 事件绑定
+    // ================================================================
+    $("blueprintRows").addEventListener("input", (event) => {
+        const index = event.target.dataset.bpCount ?? event.target.dataset.bpScore;
+        if (index === undefined) return;
+        const field = event.target.dataset.bpCount !== undefined ? "count" : "score";
+        state.blueprint[index][field] = Number(event.target.value) || 0;
+        const total = state.blueprint.reduce((sum, row) => sum + row.count * row.score, 0);
+        $("blueprintTotal").textContent = fmt(total);
+    });
+
+    $("blueprintRows").addEventListener("change", (event) => {
+        const index = event.target.dataset.bpType;
+        if (index === undefined) return;
+        state.blueprint[index].type = event.target.value;
+    });
+
+    $("blueprintRows").addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-bp-remove]");
+        if (!button) return;
+        state.blueprint.splice(Number(button.dataset.bpRemove), 1);
+        renderBlueprint();
+    });
+
+    $("btnAddRow").addEventListener("click", () => {
+        const used = new Set(state.blueprint.map(row => row.type));
+        const next = TYPE_LABEL.find(t => !used.has(t.value));
+        if (!next) { UI.toast("六种题型都已经在蓝图里了", "warning"); return; }
+        state.blueprint.push({ type: next.value, count: 2, score: 2 });
+        renderBlueprint();
+    });
+
+    $("kpTree").addEventListener("change", (event) => {
+        // 判「属性是否存在」，不是判它的值：模板里写的是无值属性 `data-kp`，
+        // 于是 `dataset.kp` 等于空字符串（falsy）。若按真值判断，单个勾选会**永远被拦掉**，
+        // 界面显示已勾选、题池却毫无变化（BUG-03：静默失效，最难发现的那种）。
+        if (!event.target.hasAttribute("data-kp")) return;
+        const id = Number(event.target.value);
+        if (event.target.checked) state.selectedKps.add(id);
+        else state.selectedKps.delete(id);
+        loadPool();
+    });
+
+    $("kpToggleAll").addEventListener("click", (event) => {
+        event.preventDefault();
+        const boxes = [...document.querySelectorAll("#kpTree input[data-kp]")];
+        const allChecked = boxes.every(box => box.checked);
+        boxes.forEach(box => {
+            box.checked = !allChecked;
+            const id = Number(box.value);
+            if (allChecked) state.selectedKps.delete(id);
+            else state.selectedKps.add(id);
+        });
+        loadPool();
+    });
+
+    $("composeSubject").addEventListener("change", loadPool);
+    $("btnReloadPool").addEventListener("click", loadPool);
+    $("btnPreview").addEventListener("click", doPreview);
+    $("btnCompose").addEventListener("click", doCompose);
+    $("btnRandomCompose").addEventListener("click", doRandomCompose);
+    $("btnSaveTitle").addEventListener("click", saveHead);
+    $("btnPublish").addEventListener("click", toggleStatus);
+    $("btnClone").addEventListener("click", clonePaper);
+    $("btnNotes").addEventListener("click", generateNotes);
+    $("btnReloadAnalysis").addEventListener("click", () => loadAnalysis());
+
+    document.querySelectorAll("[data-export]").forEach(link => {
+        link.addEventListener("click", (event) => {
+            event.preventDefault();
+            exportPaper(link.dataset.export);
+        });
+    });
+
+    $("sheetBody").addEventListener("click", (event) => {
+        const removeButton = event.target.closest("button[data-remove-pq]");
+        if (removeButton) { removeQuestion(Number(removeButton.dataset.removePq)); return; }
+        const moveButton = event.target.closest("button[data-move]");
+        if (moveButton) moveQuestion(Number(moveButton.dataset.pq), moveButton.dataset.move);
+    });
+
+    $("sheetBody").addEventListener("change", (event) => {
+        const id = event.target.dataset.scoreFor;
+        if (id) updateScore(Number(id), event.target.value);
+    });
+
+    // 新建页第一次点「从题库加题」：先落一份空卷拿到 paper_id，再打开选题器
+    $("btnOpenPicker").addEventListener("click", async () => {
+        UI.setBusy($("btnOpenPicker"), true, "准备试卷…");
+        try {
+            if (!(await ensurePaper())) return;      // 建卷失败：报错已提示，不打开选题器
+            state.pick.page = 1;
+            state.pick.selected.clear();
+            $("pickCount").textContent = "0";
+            bootstrap.Modal.getOrCreateInstance($("pickerModal")).show();
+            searchQuestions();
+        } finally {
+            UI.setBusy($("btnOpenPicker"), false);
+        }
+    });
+
+    $("btnPickSearch").addEventListener("click", () => { state.pick.page = 1; searchQuestions(); });
+    $("btnPickReset").addEventListener("click", () => {
+        ["pickType", "pickDifficulty", "pickKeyword", "pickScore"]
+            .forEach(id => { $(id).value = ""; });
+        state.pick.page = 1;
+        searchQuestions();
+    });
+    $("btnPickPagePrev").addEventListener("click", () => {
+        if (state.pick.page > 1) { state.pick.page -= 1; searchQuestions(); }
+    });
+    $("btnPickPageNext").addEventListener("click", () => {
+        state.pick.page += 1;
+        searchQuestions();
+    });
+    $("pickKeyword").addEventListener("keydown", (event) => {
+        if (event.key === "Enter") { state.pick.page = 1; searchQuestions(); }
+    });
+    $("pickList").addEventListener("change", (event) => {
+        const id = event.target.dataset.pick;
+        if (!id) return;
+        if (event.target.checked) state.pick.selected.set(Number(id), true);
+        else state.pick.selected.delete(Number(id));
+        $("pickCount").textContent = String(state.pick.selected.size);
+    });
+    $("btnPickAdd").addEventListener("click", addPicked);
+
+    window.addEventListener("resize", () => {
+        Object.values(state.charts).forEach(chart => chart && chart.resize());
+    });
+
+    // ================================================================
+    // 启动
+    // ================================================================
+    state.blueprint = DEFAULT_BLUEPRINT.map(row => ({ ...row }));
+    renderBlueprint();
+    loadKnowledgeTree();
+    loadPool();
+    if (state.paperId) loadPaper();
+})();
+</script>
+{% endblock %}

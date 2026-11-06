@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}数据总览 · 管理控制台{% endblock %}
+
+{% block extra_css %}
+<style>
+    .stat-section-title { font-size: 12px; letter-spacing: .08em; font-weight: 700; }
+    .bar-chart { display: flex; align-items: flex-end; gap: 8px; height: 120px; }
+    .bar-chart .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .bar-chart .bar {
+        width: 100%; min-height: 3px; border-radius: 6px 6px 2px 2px;
+        background: linear-gradient(180deg, var(--brand-500), var(--brand-700));
+    }
+    .bar-chart .bar-label { font-size: 10px; color: var(--ink-400); white-space: nowrap; }
+    .bar-chart .bar-value { font-size: 10px; font-weight: 600; color: var(--brand-700); }
+    .status-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .status-row .status-name { width: 64px; font-size: 12px; color: var(--ink-400); }
+    .status-row .progress { flex: 1; height: 8px; background: #eef2f7; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">数据总览</h4>
+            <div class="text-muted small">
+                系统级体检 · 统计时间 {{ overview.generated_at }}（近 {{ overview.recent_days }} 日口径）
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="{% url 'manage-user-list' %}" class="btn btn-brand btn-sm">
+                <i class="bi bi-person-plus me-1"></i> 新建用户
+            </a>
+            <a href="{% url 'manage-system' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-sliders me-1"></i> 系统配置
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="container py-4">
+
+    {% if overview.users.total == 0 %}
+    <!-- 空库状态（AC-10）：显示 0 与引导，不留白、不报错 -->
+    <div class="table-card mb-4">
+        <div class="empty-state">
+            <i class="bi bi-inbox"></i>
+            <p class="mb-1">系统里还没有任何账号</p>
+            <p class="text-muted small mb-3">先创建一个教师账号，就可以开始建题库、组卷与发布考试了。</p>
+            <a href="{% url 'manage-user-create' %}" class="btn btn-brand btn-sm">
+                <i class="bi bi-person-plus me-1"></i> 新建用户
+            </a>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ============ 第一组：用户结构 ============ -->
+    <div class="d-flex align-items-center justify-content-between mb-2">
+        <span class="stat-section-title text-uppercase text-muted">用户结构</span>
+        <a href="{% url 'manage-user-list' %}" class="small text-decoration-none">进入用户管理 <i class="bi bi-arrow-right-short"></i></a>
+    </div>
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ overview.users.total }}</div>
+                <div class="stat-label">总用户数</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ overview.users.by_role.teacher }}</div>
+                <div class="stat-label">教师</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ overview.users.by_role.student }}</div>
+                <div class="stat-label">学生</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ overview.users.by_role.admin }}</div>
+                <div class="stat-label">管理员</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ overview.users.inactive }}</div>
+                <div class="stat-label">已停用账号</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ overview.users.new_recent }}</div>
+                <div class="stat-label">近 {{ overview.recent_days }} 日新增</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ overview.users.active_recent }}</div>
+                <div class="stat-label">近 {{ overview.recent_days }} 日登录过</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ overview.users.teachers_without_subject }}</div>
+                <div class="stat-label">未绑定学科的教师</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ 第二组：教学资源与组织 ============ -->
+    <div class="d-flex align-items-center justify-content-between mb-2">
+        <span class="stat-section-title text-uppercase text-muted">教学资源与组织</span>
+        <a href="{% url 'manage-org' %}" class="small text-decoration-none">进入组织数据 <i class="bi bi-arrow-right-short"></i></a>
+    </div>
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ overview.org.classrooms }}</div>
+                <div class="stat-label">班级总数（行政 {{ overview.org.admin_classes }} / 学科 {{ overview.org.subject_classes }}）</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ overview.content.questions }}</div>
+                <div class="stat-label">题库题量（启用 {{ overview.content.questions_active }}）</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ overview.content.papers }}</div>
+                <div class="stat-label">试卷数（已发布 {{ overview.content.papers_published }}）</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ overview.teaching.exams }}</div>
+                <div class="stat-label">考试总数</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ overview.teaching.attempts_recent }}</div>
+                <div class="stat-label">近 {{ overview.recent_days }} 日参考人次</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ overview.teaching.graded_recent }}</div>
+                <div class="stat-label">近 {{ overview.recent_days }} 日已出分人次</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ overview.content.questions_ai }}</div>
+                <div class="stat-label">AI 生成题目数</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ overview.org.archived_classrooms }}</div>
+                <div class="stat-label">已归档班级</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <!-- 图 1：考试状态分布 -->
+        <div class="col-12 col-lg-6">
+            <div class="table-card h-100">
+                <div class="p-3 border-bottom">
+                    <span class="fw-semibold small">考试状态分布</span>
+                </div>
+                <div class="p-3">
+                    {% for row in overview.teaching.exams_by_status %}
+                        <div class="status-row">
+                            <span class="status-name">{{ row.label }}</span>
+                            <div class="progress" role="progressbar" aria-label="{{ row.label }}"
+                                 aria-valuenow="{{ row.total }}" aria-valuemin="0" aria-valuemax="{{ exam_status_peak }}">
+                                <div class="progress-bar" style="width: {% widthratio row.total exam_status_peak 100 %}%"></div>
+                            </div>
+                            <span class="small fw-semibold" style="width:36px;text-align:right">{{ row.total }}</span>
+                        </div>
+                    {% endfor %}
+                    {% if overview.teaching.exams == 0 %}
+                        <p class="text-muted small mb-0 mt-2">暂无数据（还没有创建任何考试）</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- 图 2：近 7 日 AI 调用趋势 -->
+        <div class="col-12 col-lg-6">
+            <div class="table-card h-100">
+                <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+                    <span class="fw-semibold small">近 {{ overview.recent_days }} 日 AI 调用趋势</span>
+                    <span class="badge badge-soft {% if overview.ai.provider.active_is_mock %}badge-soft-amber{% else %}badge-soft-teal{% endif %}">
+                        {{ overview.ai.provider.current }}
+                    </span>
+                </div>
+                <div class="p-3">
+                    {% if overview.ai.calls_recent == 0 %}
+                        <div class="empty-state py-3 px-0">
+                            <i class="bi bi-bar-chart-line"></i>
+                            <p class="text-muted small mb-0">暂无数据</p>
+                        </div>
+                    {% else %}
+                        <div class="bar-chart">
+                            {% for point in overview.ai.trend %}
+                                <div class="bar-col" title="{{ point.date }} 调用 {{ point.calls }} 次">
+                                    <span class="bar-value">{{ point.calls }}</span>
+                                    <div class="bar" style="height: {% widthratio point.calls ai_trend_peak 100 %}%"></div>
+                                    <span class="bar-label">{{ point.date }}</span>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ 第三组：AI 用量 ============ -->
+    <div class="d-flex align-items-center justify-content-between mb-2">
+        <span class="stat-section-title text-uppercase text-muted">AI 用量（系统级成本）</span>
+        <a href="{% url 'manage-system' %}" class="small text-decoration-none">Provider 诊断 <i class="bi bi-arrow-right-short"></i></a>
+    </div>
+    <div class="table-card">
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>指标</th>
+                        <th class="text-end">数值</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>调用次数</td>
+                        <td class="text-end fw-semibold">{{ overview.ai.calls_recent }}</td>
+                        <td class="text-muted small">近 {{ overview.recent_days }} 日</td>
+                    </tr>
+                    <tr>
+                        <td>失败次数 / 失败率</td>
+                        <td class="text-end fw-semibold">
+                            {{ overview.ai.failed_recent }} / {{ overview.ai.fail_rate }}%
+                        </td>
+                        <td class="text-muted small">失败率 = 失败次数 ÷ 调用次数</td>
+                    </tr>
+                    <tr>
+                        <td>Token 总量</td>
+                        <td class="text-end fw-semibold">{{ overview.ai.tokens_recent }}</td>
+                        <td class="text-muted small">输入 + 输出 tokens 合计</td>
+                    </tr>
+                    <tr>
+                        <td>本地模拟调用</td>
+                        <td class="text-end fw-semibold">{{ overview.ai.mock_calls_recent }}</td>
+                        <td class="text-muted small">
+                            {% if overview.ai.provider.active_is_mock %}
+                                <span class="badge badge-soft badge-soft-amber">当前为本地模拟模式（mock）</span>
+                            {% else %}
+                                当前为真实 Provider 调用
+                            {% endif %}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ============ 第四组：快捷入口（只含管理动作，不含教学卡片，AC-09） ============ -->
+    <div class="d-flex flex-wrap gap-2 mt-4">
+        <a href="{% url 'manage-user-list' %}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-people me-1"></i> 管理账号
+        </a>
+        <a href="{% url 'manage-org' %}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-diagram-2 me-1"></i> 查看组织数据
+        </a>
+        <a href="{% url 'manage-system' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-activity me-1"></i> 系统诊断
+        </a>
+    </div>
+</div>
+{% endblock %}

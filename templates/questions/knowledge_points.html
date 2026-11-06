@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}知识点管理 · 题库{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">知识点管理</h4>
+            <div class="text-muted small">组卷、学情分析、个性化推荐都以知识点为维度组织数据</div>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'question-bank' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left me-1"></i> 返回题库
+            </a>
+            <button class="btn btn-brand btn-sm" id="btn-add-root">
+                <i class="bi bi-plus-lg me-1"></i> 新建根知识点
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="container py-4">
+    <div class="row g-4">
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-diagram-3 text-primary me-1"></i> 知识点树</span>
+                    <div class="d-flex gap-2 align-items-center">
+                        <select class="form-select form-select-sm" id="f-subject" style="width:170px;">
+                            <option value="">全部学科</option>
+                            {% for subject in subjects %}
+                                <option value="{{ subject }}">{{ subject }}</option>
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-outline-secondary btn-sm" id="btn-refresh">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body p-4" id="tree-container">
+                    <div class="text-center text-muted py-5">
+                        <span class="spinner-border spinner-border-sm me-2"></span>加载中…
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card sticky-lg-top" style="top: 88px;">
+                <div class="card-header"><i class="bi bi-pencil-square text-primary me-1"></i>
+                    <span id="form-title">新建知识点</span></div>
+                <div class="card-body p-4">
+                    <input type="hidden" id="kp-id">
+
+                    <div class="mb-3">
+                        <label class="form-label small">名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm" id="kp-name"
+                               placeholder="如：二叉树">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small">编号</label>
+                        <input type="text" class="form-control form-control-sm" id="kp-code"
+                               placeholder="如：CS-DS-01">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small">上级知识点</label>
+                        <select class="form-select form-select-sm" id="kp-parent">
+                            <option value="">（作为根知识点）</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small">学科 / 课程</label>
+                        <input type="text" class="form-control form-control-sm" id="kp-subject"
+                               placeholder="如：数据结构">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small">同级排序</label>
+                        <input type="number" class="form-control form-control-sm" id="kp-order" value="0">
+                        <div class="form-text">数字越小越靠前</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small">描述</label>
+                        <textarea class="form-control form-control-sm" id="kp-desc" rows="2"></textarea>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="kp-active" checked>
+                        <label class="form-check-label small" for="kp-active">启用</label>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-brand btn-sm flex-grow-1" id="btn-save">
+                            <i class="bi bi-check2-circle me-1"></i> 保存
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" id="btn-reset-form">重置</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(function () {
+    const container = document.getElementById('tree-container');
+    const parentSelect = document.getElementById('kp-parent');
+    let flatPoints = [];
+
+    const els = {
+        id: document.getElementById('kp-id'),
+        name: document.getElementById('kp-name'),
+        code: document.getElementById('kp-code'),
+        parent: document.getElementById('kp-parent'),
+        subject: document.getElementById('kp-subject'),
+        order: document.getElementById('kp-order'),
+        desc: document.getElementById('kp-desc'),
+        active: document.getElementById('kp-active'),
+    };
+
+    function resetForm() {
+        els.id.value = '';
+        els.name.value = '';
+        els.code.value = '';
+        els.parent.value = '';
+        els.subject.value = '';
+        els.order.value = 0;
+        els.desc.value = '';
+        els.active.checked = true;
+        document.getElementById('form-title').textContent = '新建知识点';
+    }
+
+    /* ---------------- 加载 ---------------- */
+    async function load() {
+        const subject = document.getElementById('f-subject').value;
+        container.innerHTML = '<div class="text-center text-muted py-5">'
+            + '<span class="spinner-border spinner-border-sm me-2"></span>加载中…</div>';
+        try {
+            const tree = await API.get('/knowledge-points/tree/', { subject: subject });
+            flatPoints = [];
+            container.innerHTML = tree.length ? renderTree(tree) : emptyHtml();
+            fillParentSelect();
+            bindTreeEvents();
+        } catch (err) {
+            container.innerHTML = '<div class="text-danger py-4 text-center">'
+                + escapeHtml(UI.errorText(err)) + '</div>';
+        }
+    }
+
+    function emptyHtml() {
+        return '<div class="empty-state"><i class="bi bi-diagram-3"></i>'
+            + '还没有知识点，先建一个根知识点吧</div>';
+    }
+
+    function renderTree(nodes, depth) {
+        depth = depth || 0;
+        return '<ul class="tree-list">' + nodes.map(node => {
+            flatPoints.push({ id: node.id, name: node.name, depth: depth });
+            const hasChildren = node.children && node.children.length;
+            return `
+            <li>
+                <div class="tree-node" data-id="${node.id}">
+                    <i class="bi ${hasChildren ? 'bi-folder2-open text-warning' : 'bi-file-earmark-text text-muted'}"></i>
+                    <span class="node-name">${escapeHtml(node.name)}</span>
+                    ${node.code ? '<span class="badge bg-light text-secondary border">' + escapeHtml(node.code) + '</span>' : ''}
+                    <span class="badge bg-primary-subtle text-primary-emphasis">${node.question_count} 题</span>
+                    <span class="node-actions">
+                        <button class="btn btn-sm btn-outline-primary py-0 px-2 btn-add-child"
+                                data-id="${node.id}" title="添加子知识点"><i class="bi bi-plus"></i></button>
+                        <button class="btn btn-sm btn-outline-secondary py-0 px-2 btn-edit"
+                                data-id="${node.id}" title="编辑"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-sm btn-outline-danger py-0 px-2 btn-del"
+                                data-id="${node.id}" title="删除"><i class="bi bi-trash3"></i></button>
+                    </span>
+                </div>
+                ${hasChildren ? renderTree(node.children, depth + 1) : ''}
+            </li>`;
+        }).join('') + '</ul>';
+    }
+
+    function fillParentSelect() {
+        parentSelect.innerHTML = '<option value="">（作为根知识点）</option>'
+            + flatPoints.map(p =>
+                `<option value="${p.id}">${'　'.repeat(p.depth)}${escapeHtml(p.name)}</option>`
+            ).join('');
+    }
+
+    /* ---------------- 交互 ---------------- */
+    function bindTreeEvents() {
+        container.querySelectorAll('.btn-edit').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                try {
+                    const point = await API.get('/knowledge-points/' + btn.dataset.id + '/');
+                    els.id.value = point.id;
+                    els.name.value = point.name;
+                    els.code.value = point.code || '';
+                    els.parent.value = point.parent || '';
+                    els.subject.value = point.subject || '';
+                    els.order.value = point.order;
+                    els.desc.value = point.description || '';
+                    els.active.checked = point.is_active;
+                    document.getElementById('form-title').textContent = '编辑知识点：' + point.name;
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                } catch (err) { UI.error(UI.errorText(err)); }
+            });
+        });
+
+        container.querySelectorAll('.btn-add-child').forEach(btn => {
+            btn.addEventListener('click', () => {
+                resetForm();
+                els.parent.value = btn.dataset.id;
+                const parent = flatPoints.find(p => String(p.id) === btn.dataset.id);
+                if (parent) {
+                    els.subject.value = (document.getElementById('f-subject').value) || '';
+                }
+                els.name.focus();
+            });
+        });
+
+        container.querySelectorAll('.btn-del').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const node = flatPoints.find(p => String(p.id) === btn.dataset.id) || {};
+                if (!confirm('删除知识点「' + node.name + '」？其下子知识点也会一并删除。')) return;
+                try {
+                    await API.del('/knowledge-points/' + btn.dataset.id + '/');
+                    UI.success('已删除');
+                    load();
+                } catch (err) { UI.error(UI.errorText(err)); }
+            });
+        });
+    }
+
+    document.getElementById('btn-save').addEventListener('click', async (event) => {
+    // currentTarget 在 await 之后会被置空，先存下来，否则按钮会卡在加载态
+    const btn = event.currentTarget;
+        const payload = {
+            name: els.name.value.trim(),
+            code: els.code.value.trim(),
+            parent: els.parent.value ? parseInt(els.parent.value, 10) : null,
+            subject: els.subject.value.trim(),
+            order: parseInt(els.order.value, 10) || 0,
+            description: els.desc.value.trim(),
+            is_active: els.active.checked,
+        };
+        if (!payload.name) { UI.error('请填写名称'); return; }
+
+        UI.setBusy(btn, true, '保存中…');
+        try {
+            if (els.id.value) {
+                await API.put('/knowledge-points/' + els.id.value + '/', payload);
+                UI.success('已更新');
+            } else {
+                await API.post('/knowledge-points/', payload);
+                UI.success('已创建');
+            }
+            resetForm();
+            load();
+        } catch (err) {
+            UI.error(UI.errorText(err));
+        } finally {
+            UI.setBusy(btn, false);
+        }
+    });
+
+    document.getElementById('btn-reset-form').addEventListener('click', resetForm);
+    document.getElementById('btn-refresh').addEventListener('click', load);
+    document.getElementById('f-subject').addEventListener('change', load);
+    document.getElementById('btn-add-root').addEventListener('click', () => {
+        resetForm();
+        els.name.focus();
+    });
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text == null ? '' : String(text);
+        return div.innerHTML;
+    }
+
+    load();
+})();
+</script>
+{% endblock %}

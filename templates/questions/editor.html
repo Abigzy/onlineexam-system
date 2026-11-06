@@ -1,0 +1,449 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ page_title }} · 题库{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">{{ page_title }}</h4>
+            <div class="text-muted small">选择题的正确答案请在选项左侧勾选；主观题请填写评分要点</div>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'question-bank' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left me-1"></i> 返回题库
+            </a>
+            <button class="btn btn-brand btn-sm" id="btn-save">
+                <i class="bi bi-check2-circle me-1"></i> 保存
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="container py-4">
+    <div class="row g-4">
+        <!-- 主体 -->
+        <div class="col-lg-8">
+            <div class="card mb-4">
+                <div class="card-header"><i class="bi bi-card-text text-primary me-1"></i> 题目内容</div>
+                <div class="card-body p-4">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">题型 <span class="text-danger">*</span></label>
+                            <select class="form-select" id="q-type">
+                                <option value="single">单选题</option>
+                                <option value="multiple">多选题</option>
+                                <option value="judge">判断题</option>
+                                <option value="fill">填空题</option>
+                                <option value="short">简答题</option>
+                                <option value="essay">论述题</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">难度</label>
+                            <select class="form-select" id="q-difficulty">
+                                <option value="1">简单</option>
+                                <option value="2" selected>中等</option>
+                                <option value="3">困难</option>
+                                <option value="4">挑战</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">分值</label>
+                            <input type="number" step="0.5" min="0.5" class="form-control" id="q-score" value="2">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">题干 <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="q-stem" rows="3"
+                                  placeholder="请输入题干内容"></textarea>
+                    </div>
+
+                    <!-- 选项区（选择题） -->
+                    <div class="mb-3" id="options-block">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label class="form-label mb-0">选项
+                                <span class="text-muted small" id="options-hint">勾选左侧方框标记正确答案</span>
+                            </label>
+                            <button class="btn btn-sm btn-outline-primary" id="btn-add-option">
+                                <i class="bi bi-plus-lg"></i> 添加选项
+                            </button>
+                        </div>
+                        <div id="options-list"></div>
+                    </div>
+
+                    <!-- 参考答案（填空 / 主观题） -->
+                    <div class="mb-3" id="answer-block">
+                        <label class="form-label">
+                            参考答案 <span class="text-danger">*</span>
+                            <span class="text-muted small" id="answer-hint"></span>
+                        </label>
+                        <textarea class="form-control" id="q-answer" rows="4"
+                                  placeholder="每行一个要点 / 一个空的答案"></textarea>
+                    </div>
+
+                    <div class="mb-0">
+                        <label class="form-label">解析</label>
+                        <textarea class="form-control" id="q-analysis" rows="3"
+                                  placeholder="可留空，稍后在题库列表点「AI 生成解析」"></textarea>
+                        <button class="btn btn-sm btn-outline-secondary mt-2" id="btn-ai-explain">
+                            <i class="bi bi-robot me-1"></i> 让 AI 帮我写解析
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 侧栏 -->
+        <div class="col-lg-4">
+            <div class="card mb-4">
+                <div class="card-header"><i class="bi bi-tags text-primary me-1"></i> 知识点</div>
+                <div class="card-body p-4">
+                    <label class="form-label small">从已有知识点中选择（可多选）</label>
+                    <select class="form-select form-select-sm mb-3" id="kp-ids" multiple size="8"></select>
+
+                    <label class="form-label small">或直接输入新知识点名称</label>
+                    <input type="text" class="form-control form-control-sm" id="kp-names"
+                           placeholder="多个用逗号分隔，不存在会自动创建">
+                    <div class="form-text">留空也没关系，可稍后在知识点管理中归位。</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><i class="bi bi-sliders text-primary me-1"></i> 其它属性</div>
+                <div class="card-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small">学科 / 课程</label>
+                        <input type="text" class="form-control form-control-sm" id="q-subject"
+                               placeholder="如：数据结构">
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="q-active" checked>
+                        <label class="form-check-label small" for="q-active">启用（停用后不会出现在组卷候选中）</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="q-reviewed" checked>
+                        <label class="form-check-label small" for="q-reviewed">已审核（AI 生成的题目建议人工确认后再勾选）</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(function () {
+    const QUESTION_ID = {{ question_id|default:"null" }};
+    const CHOICE_TYPES = ['single', 'multiple', 'judge'];
+    const JUDGE_OPTIONS = [['A', '正确'], ['B', '错误']];
+
+    const els = {
+        type: document.getElementById('q-type'),
+        difficulty: document.getElementById('q-difficulty'),
+        score: document.getElementById('q-score'),
+        stem: document.getElementById('q-stem'),
+        answer: document.getElementById('q-answer'),
+        analysis: document.getElementById('q-analysis'),
+        subject: document.getElementById('q-subject'),
+        active: document.getElementById('q-active'),
+        reviewed: document.getElementById('q-reviewed'),
+        optionsBlock: document.getElementById('options-block'),
+        optionsList: document.getElementById('options-list'),
+        answerBlock: document.getElementById('answer-block'),
+        answerHint: document.getElementById('answer-hint'),
+        kpIds: document.getElementById('kp-ids'),
+        kpNames: document.getElementById('kp-names'),
+        saveBtn: document.getElementById('btn-save'),
+    };
+
+    /* ---------------- 选项渲染 ---------------- */
+    function optionRowHtml(label, content, isCorrect, locked) {
+        return `
+        <div class="option-row ${isCorrect ? 'is-correct' : ''}">
+            <input class="form-check-input mt-2 ms-1 option-correct" type="checkbox"
+                   ${isCorrect ? 'checked' : ''} ${locked ? 'disabled' : ''}
+                   title="标记为正确答案">
+            <input type="text" class="form-control form-control-sm option-label-input"
+                   value="${escapeAttr(label)}" ${locked ? 'readonly' : ''}>
+            <textarea class="form-control form-control-sm option-content" rows="1"
+                      placeholder="选项内容">${escapeHtml(content || '')}</textarea>
+            <button class="btn btn-sm btn-outline-danger option-remove" ${locked ? 'disabled' : ''}>
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>`;
+    }
+
+    function nextLabel() {
+        const used = Array.from(document.querySelectorAll('.option-label-input'))
+            .map(input => input.value.trim().toUpperCase());
+        for (let i = 0; i < 26; i++) {
+            const label = String.fromCharCode(65 + i);
+            if (!used.includes(label)) return label;
+        }
+        return 'Z';
+    }
+
+    function addOption(label, content, isCorrect, locked) {
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = optionRowHtml(label || nextLabel(), content || '', !!isCorrect, !!locked);
+        els.optionsList.appendChild(wrapper.firstElementChild);
+    }
+
+    function renderOptions(options, locked) {
+        els.optionsList.innerHTML = '';
+        (options || []).forEach(o => addOption(o.label, o.content, o.is_correct, locked));
+    }
+
+    function refreshOptionStyles() {
+        document.querySelectorAll('#options-list .option-row').forEach(row => {
+            const checked = row.querySelector('.option-correct').checked;
+            row.classList.toggle('is-correct', checked);
+        });
+    }
+
+    /* ---------------- 题型联动 ---------------- */
+    function syncType() {
+        const type = els.type.value;
+        const isChoice = CHOICE_TYPES.includes(type);
+
+        els.optionsBlock.style.display = isChoice ? '' : 'none';
+        els.answerBlock.style.display = isChoice ? 'none' : '';
+
+        if (type === 'judge') {
+            // 判断题选项固定 A=正确 / B=错误
+            els.optionsList.innerHTML = '';
+            JUDGE_OPTIONS.forEach(([label, text], index) => addOption(label, text, index === 0, true));
+            document.getElementById('options-hint').textContent = '判断题选项固定为「正确 / 错误」，请勾选正确答案';
+            document.getElementById('btn-add-option').disabled = true;
+        } else {
+            document.getElementById('btn-add-option').disabled = false;
+            document.getElementById('options-hint').textContent = '勾选左侧方框标记正确答案';
+
+            const typeHint = { single: '（只能勾选 1 个）', multiple: '（可勾选多个）' }[type] || '';
+            document.getElementById('options-hint').textContent += ' ' + typeHint;
+
+            if (!els.optionsList.children.length) {
+                addOption('A', '', false); addOption('B', '', false);
+                addOption('C', '', false); addOption('D', '', false);
+            }
+        }
+
+        const hints = {
+            fill: '每个空一行；多个空的顺序与题干中的空格顺序一致',
+            short: '每行一条评分要点，AI 批改会按要点覆盖度给分',
+            essay: '每行一条评分要点；论述题建议写清层次',
+        };
+        els.answerHint.textContent = hints[type] || '';
+        els.answer.placeholder = type === 'fill' ? '第一空答案\n第二空答案' : '第一要点\n第二要点';
+
+        if (isChoice) {
+            // 切到选择题时把旧的分值默认值也换一下
+            if (!QUESTION_ID && ['single', 'judge', 'multiple'].includes(type)) {
+                els.score.value = { single: 2, judge: 1, multiple: 3 }[type];
+            }
+        } else if (!QUESTION_ID) {
+            els.score.value = { fill: 2, short: 5, essay: 10 }[type] || 2;
+        }
+    }
+
+    /* ---------------- 知识点 ---------------- */
+    async function loadKnowledgePoints() {
+        try {
+            const tree = await API.get('/knowledge-points/tree/');
+            const walk = (nodes, depth) => {
+                nodes.forEach(node => {
+                    const option = document.createElement('option');
+                    option.value = node.id;
+                    option.textContent = '　'.repeat(depth) + node.name;
+                    els.kpIds.appendChild(option);
+                    if (node.children && node.children.length) walk(node.children, depth + 1);
+                });
+            };
+            walk(tree, 0);
+        } catch (err) { /* 无知识点时忽略 */ }
+    }
+
+    /* ---------------- 收集 / 校验 ---------------- */
+    function collect() {
+        const type = els.type.value;
+        const payload = {
+            type: type,
+            difficulty: parseInt(els.difficulty.value, 10),
+            score: parseFloat(els.score.value) || 2,
+            stem: els.stem.value.trim(),
+            subject: els.subject.value.trim(),
+            analysis: els.analysis.value.trim(),
+            is_active: els.active.checked,
+            is_reviewed: els.reviewed.checked,
+            knowledge_point_ids: Array.from(els.kpIds.selectedOptions).map(o => parseInt(o.value, 10)),
+        };
+
+        const names = els.kpNames.value.split(/[，,、]/).map(s => s.trim()).filter(Boolean);
+        if (names.length) payload.knowledge_point_names = names;
+
+        if (CHOICE_TYPES.includes(type)) {
+            payload.options = Array.from(document.querySelectorAll('#options-list .option-row'))
+                .map(row => ({
+                    label: row.querySelector('.option-label-input').value.trim().toUpperCase() || 'A',
+                    content: row.querySelector('.option-content').value.trim(),
+                    is_correct: row.querySelector('.option-correct').checked,
+                }))
+                // **空行不提交**：新增页默认就渲染 A/B/C/D 四个空行，「只填两行」是最常见的
+                // 操作。空行发给后端会被 `allow_blank=False` 判成多个错误，而 DRF 的错误是
+                // 嵌套结构，前端渲染出来就是一堆 `[object Object]`（BUG-02）。
+                // 这里与 validate() 的口径对齐——只看「填了内容的」。
+                .filter(o => o.content);
+        } else {
+            payload.reference_answer = els.answer.value.trim();
+        }
+        return payload;
+    }
+
+    function validate(payload) {
+        if (!payload.stem || payload.stem.length < 2) return '请填写题干';
+        if (CHOICE_TYPES.includes(payload.type)) {
+            const filled = payload.options.filter(o => o.content);
+            if (filled.length < 2) return '至少需要 2 个选项';
+            const correct = filled.filter(o => o.is_correct).length;
+            if (correct === 0) return '请勾选正确答案';
+            if (['single', 'judge'].includes(payload.type) && correct !== 1) return '单选题 / 判断题只能有 1 个正确答案';
+        } else if (!payload.reference_answer) {
+            return '请填写参考答案';
+        }
+        return null;
+    }
+
+    async function save(stayOnPage) {
+        const payload = collect();
+        const problem = validate(payload);
+        if (problem) { UI.error(problem); return; }
+
+        UI.setBusy(els.saveBtn, true, '保存中…');
+        try {
+            if (QUESTION_ID) {
+                await API.put('/questions/' + QUESTION_ID + '/', payload);
+                UI.success('题目已更新');
+            } else {
+                const created = await API.post('/questions/', payload);
+                UI.success('题目创建成功');
+                if (stayOnPage) {
+                    location.href = '/question-bank/' + created.id + '/edit/';
+                    return;
+                }
+                location.href = '/question-bank/';
+                return;
+            }
+        } catch (err) {
+            UI.error(UI.errorText(err));
+        } finally {
+            UI.setBusy(els.saveBtn, false);
+        }
+    }
+
+    /* ---------------- 事件 ---------------- */
+    els.type.addEventListener('change', syncType);
+
+    document.getElementById('btn-add-option').addEventListener('click', () => {
+        addOption('', '', false);
+        refreshOptionStyles();
+    });
+
+    els.optionsList.addEventListener('click', (event) => {
+        const removeBtn = event.target.closest('.option-remove');
+        if (removeBtn && !removeBtn.disabled) {
+            removeBtn.closest('.option-row').remove();
+        }
+    });
+    els.optionsList.addEventListener('change', (event) => {
+        if (!event.target.classList.contains('option-correct')) return;
+        const type = els.type.value;
+        if (['single', 'judge'].includes(type) && event.target.checked) {
+            // 单选 / 判断：勾一个就取消其它的
+            els.optionsList.querySelectorAll('.option-correct').forEach(box => {
+                if (box !== event.target) box.checked = false;
+            });
+        }
+        refreshOptionStyles();
+    });
+
+    els.saveBtn.addEventListener('click', () => save(false));
+
+    document.getElementById('btn-ai-explain').addEventListener('click', async (event) => {
+    // currentTarget 在 await 之后会被置空，先存下来，否则按钮会卡在加载态
+    const btn = event.currentTarget;
+        const payload = collect();
+        if (!payload.stem || payload.stem.length < 2) { UI.error('请先填写题干'); return; }
+
+        UI.setBusy(btn, true, '生成中…');
+        try {
+            let questionId = QUESTION_ID;
+            if (!questionId) {
+                // 未保存的题目先存一次，否则 AI 拿不到题目上下文
+                const created = await API.post('/questions/', payload);
+                questionId = created.id;
+                location.href = '/question-bank/' + questionId + '/edit/';
+                return;
+            }
+            const result = await API.post('/questions/' + questionId + '/ai-explain/', {});
+            els.analysis.value = result.analysis;
+            UI.success('解析已生成并填入');
+        } catch (err) {
+            UI.error(UI.errorText(err));
+        } finally {
+            UI.setBusy(btn, false);
+        }
+    });
+
+    /* ---------------- 初始化 ---------------- */
+    (async function init() {
+        await loadKnowledgePoints();
+
+        if (QUESTION_ID) {
+            try {
+                const q = await API.get('/questions/' + QUESTION_ID + '/');
+                els.type.value = q.type;
+                els.difficulty.value = q.difficulty;
+                els.score.value = q.score;
+                els.stem.value = q.stem;
+                els.analysis.value = q.analysis || '';
+                els.subject.value = q.subject || '';
+                els.active.checked = q.is_active;
+                els.reviewed.checked = q.is_reviewed;
+
+                if (CHOICE_TYPES.includes(q.type)) {
+                    renderOptions(q.options, q.type === 'judge');
+                } else {
+                    els.answer.value = q.reference_answer || '';
+                }
+                Array.from(els.kpIds.options).forEach(option => {
+                    option.selected = q.knowledge_points.some(kp => String(kp.id) === option.value);
+                });
+                syncType();
+                // syncType 对判断题会重建选项，这里补回正确答案
+                if (q.type === 'judge') {
+                    const boxes = els.optionsList.querySelectorAll('.option-correct');
+                    const correctLetter = (q.reference_answer || 'A').toUpperCase();
+                    boxes.forEach((box, index) => { box.checked = (index === 0 ? 'A' : 'B') === correctLetter; });
+                    refreshOptionStyles();
+                }
+            } catch (err) {
+                UI.error('加载题目失败：' + UI.errorText(err));
+            }
+        } else {
+            syncType();
+        }
+    })();
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text == null ? '' : String(text);
+        return div.innerHTML;
+    }
+    function escapeAttr(text) { return escapeHtml(text).replace(/"/g, '&quot;'); }
+})();
+</script>
+{% endblock %}

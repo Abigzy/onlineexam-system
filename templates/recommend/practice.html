@@ -1,0 +1,807 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .kpi-card { border-radius: 16px; border: 1px solid var(--line-200, #e8edf4); background: #fff;
+                padding: 14px 16px; height: 100%; }
+    .kpi-card .kpi-label { font-size: 12px; color: #6b7686; }
+    .kpi-card .kpi-value { font-size: 26px; font-weight: 700; line-height: 1.2; }
+    .kpi-card .kpi-foot { font-size: 12px; color: #94a3b8; }
+
+    .kp-chip { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px;
+               background: #fff7f7; color: #991b1b; border: 1px solid #fee2e2; margin: 0 6px 6px 0; }
+    .kp-chip .kp-acc { color: #b45309; margin-left: 4px; }
+
+    .practice-card { border-radius: 16px; border: 1px solid var(--line-200, #e8edf4); background: #fff;
+                     height: 100%; display: flex; flex-direction: column; }
+    .practice-card .pc-head { display: flex; justify-content: space-between; align-items: center;
+                              gap: 8px; padding: 12px 16px 8px; border-bottom: 1px dashed #eef2f7; }
+    .practice-card .pc-order { width: 26px; height: 26px; border-radius: 50%; background: #eef2ff;
+                               color: #4338ca; font-weight: 700; font-size: 13px; display: inline-flex;
+                               align-items: center; justify-content: center; }
+    .practice-card .pc-body { padding: 12px 16px; flex-grow: 1; }
+    .practice-card .pc-stem { line-height: 1.75; white-space: pre-wrap; word-break: break-word; }
+    /* ---------------- 作答区 ---------------- */
+    /* 与考试答题页同一套语义：is-picked 选中 / is-right 判对 / is-wrong 判错 */
+    .pc-answer { margin-top: 12px; }
+    .pc-answer .option-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px;
+                             border: 1px solid transparent; border-radius: 10px; cursor: pointer;
+                             font-size: 14px; line-height: 1.6; }
+    .pc-answer .option-row:hover { background: #f8fafc; }
+    .pc-answer .option-row + .option-row { margin-top: 4px; }
+    .pc-answer .option-row.is-picked { border-color: #c7d2fe; background: #eef2ff; }
+    .pc-answer .option-row.is-right { border-color: #a7f3d0; background: #ecfdf5; }
+    .pc-answer .option-row.is-wrong { border-color: #fecaca; background: #fef2f2; }
+    .pc-answer .option-label { flex: none; width: 22px; height: 22px; border-radius: 50%;
+                               background: #f1f5f9; color: #475569; font-size: 12px; font-weight: 700;
+                               display: inline-flex; align-items: center; justify-content: center;
+                               margin-top: 1px; }
+    .pc-answer.is-locked .option-row { cursor: default; }
+    .pc-answer.is-locked .option-row:hover { background: transparent; }
+    .pc-answer textarea { font-size: 14px; line-height: 1.7; }
+
+    .pc-result { border-radius: 12px; padding: 10px 12px; font-size: 13px; line-height: 1.7;
+                 white-space: pre-wrap; margin-top: 10px; }
+    .pc-result.is-right { border: 1px solid #a7f3d0; background: #ecfdf5; }
+    .pc-result.is-wrong { border: 1px solid #fecaca; background: #fef2f2; }
+    .pc-result.is-self { border: 1px solid #fde68a; background: #fffbeb; }
+    .pc-line { white-space: pre-wrap; word-break: break-word; }
+
+    .practice-bar { border-radius: 14px; border: 1px solid #e0e7ff; background: #f7f8ff;
+                    padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 14px;
+                    align-items: center; font-size: 13px; }
+    .practice-bar .pb-item strong { font-size: 16px; }
+
+    .match-bar { height: 6px; border-radius: 999px; background: #eef2f7; overflow: hidden; }
+    .match-bar > span { display: block; height: 100%; background: linear-gradient(90deg, #6366f1, #22c1a5); }
+
+    .reason-box { border-radius: 12px; border: 1px solid #e0e7ff; background: #f7f8ff;
+                  padding: 10px 12px; font-size: 13px; line-height: 1.7; }
+    .answer-box { border-radius: 12px; border: 1px solid #e8edf4; background: #fafbfc;
+                  padding: 10px 12px; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
+
+    .ai-banner { border-radius: 14px; border: 1px solid #ddd6fe;
+                 background: linear-gradient(180deg, #faf9ff, #ffffff); padding: 14px 16px; }
+    .stat-pill { font-size: 12px; padding: 2px 10px; border-radius: 999px; background: #f1f5f9;
+                 color: #475569; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">{{ page_title }}</h4>
+            <div class="text-muted small"><span id="student-meta">加载中…</span></div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            {# 下拉只列学生已加入的学科；data-scope 供脚本判断是否需要引导空态 #}
+            <select class="form-select form-select-sm" id="subject-select" style="min-width:150px"
+                    data-scope="{% if subject_options %}joined{% else %}none{% endif %}">
+                <option value="">全部学科</option>
+                {% for item in subject_options %}
+                <option value="{{ item }}"{% if item == subject %} selected{% endif %}>{{ item }}</option>
+                {% endfor %}
+            </select>
+            <button class="btn btn-outline-secondary btn-sm" id="btn-shuffle"{% if not subject_options %} disabled{% endif %}>
+                <i class="bi bi-shuffle me-1"></i> 换一批
+            </button>
+            <button class="btn btn-primary btn-sm" id="btn-ai-reason"{% if not subject_options %} disabled{% endif %}>
+                <i class="bi bi-stars me-1"></i> AI 优化推荐理由
+            </button>
+            <a href="{% url 'my-analytics' %}" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-graph-up-arrow me-1"></i> 我的学情
+            </a>
+            <a href="{% url 'wrong-book' %}" class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-journal-bookmark me-1"></i> 错题本
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="container py-4">
+    <div id="ai-banner-host"></div>
+    <div id="practice-host">
+        <div class="text-center text-muted py-5">加载中…</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(function () {
+    'use strict';
+
+    const STUDENT_ID = {{ student_id }};
+    const INITIAL_SUBJECT = '{{ subject|escapejs }}';
+    // 服务端渲染下拉时就知道学生有没有加入任何学科班：
+    // 没有的话整个页面走引导空态，「换一批 / AI 优化」按钮也已禁用
+    const HAS_SUBJECT_SCOPE = $('subject-select').getAttribute('data-scope') === 'joined';
+    const PAGE_SIZE = 6;
+
+    let state = { offset: 0, size: PAGE_SIZE, payload: null, items: [], results: {} };
+
+    function $(id) { return document.getElementById(id); }
+    function esc(text) {
+        return String(text === null || text === undefined ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function num(value, digits) {
+        if (value === null || value === undefined) return '—';
+        const v = Number(value);
+        if (!isFinite(v)) return '—';
+        return digits === undefined ? (Number.isInteger(v) ? String(v) : v.toFixed(1)) : v.toFixed(digits);
+    }
+    function pct(value) { return value === null || value === undefined ? '—' : num(value, 1) + '%'; }
+    function currentSubject() { return $('subject-select').value || ''; }
+
+    /**
+     * 首屏把 URL 上的 ``?subject=`` 写进下拉。
+     *
+     * 不做这一步的话，第一个请求取的是下拉当前值（服务端只渲染了「全部学科」），
+     * 从学情页点「去练习」带过来的学科会被静默丢掉，落到全科推荐上。
+     *
+     * 只在下拉里**已有**该学科时选中（服务端列的正是已加入的学科）；
+     * 没加入的学科不再临时补一个 option——那等于把越界学科摆在学生面前。
+     */
+    function primeInitialSubject() {
+        if (!INITIAL_SUBJECT) return;
+        const select = $('subject-select');
+        const options = select.options || [];
+        const exists = Array.prototype.some.call(options, function (option) {
+            return option.value === INITIAL_SUBJECT;
+        });
+        if (exists) select.value = INITIAL_SUBJECT;
+    }
+
+    /**
+     * starter 场景的 AI 文本不该出现「薄弱」——后端已按模式给指令，
+     * 这里再兜一层：模型偶尔不听话时，展示前把措辞纠正过来。
+     */
+    function starterSafe(text) {
+        return String(text === null || text === undefined ? '' : text)
+            .replace(/薄弱知识点/g, '知识点')
+            .replace(/薄弱环节/g, '待巩固环节')
+            .replace(/薄弱/g, '待巩固');
+    }
+
+    /** 按当前模式决定是否纠正 AI 措辞（normal 一律原样展示）。 */
+    function reasonText(text) {
+        const payload = state.payload || {};
+        return payload.mode === 'starter' ? starterSafe(text) : text;
+    }
+
+    const DIFFICULTY_BADGE = {
+        1: 'badge-soft badge-soft-teal', 2: 'badge-soft badge-soft-blue',
+        3: 'badge-soft badge-soft-amber', 4: 'badge-soft badge-soft-red',
+    };
+
+    /* ---------------- 加载 ---------------- */
+    async function load(resetOffset) {
+        if (resetOffset) state.offset = 0;
+        // 重新拉清单（换学科 / 换一批）时清空本次作答记录；
+        // 「AI 优化推荐理由」走的是 render()，不清，所以作答进度不会丢
+        state.results = {};
+        const host = $('practice-host');
+        host.innerHTML = '<div class="text-center text-muted py-5">加载中…</div>';
+        let data;
+        try {
+            data = await API.get('/recommend/students/' + STUDENT_ID + '/practice/', {
+                subject: currentSubject(), size: state.size, offset: state.offset,
+            });
+        } catch (err) {
+            host.innerHTML = '<div class="text-center text-danger py-5">'
+                + esc(UI.errorText(err)) + '</div>';
+            return;
+        }
+        state.payload = data;
+        // 下拉范围用 selectable_subjects —— 只含**已加入**的学科（学科班的学科），
+        // 题库里有题但没加入的学科不再出现，也不能通过 ?subject= 深链切过去
+        renderSubjects(data.selectable_subjects || []);
+        renderAiBanner(null);
+        render(data, host);
+    }
+
+    function renderSubjects(subjects) {
+        const select = $('subject-select');
+        const names = subjects.slice();
+        // 越界学科（手改 URL / 之前加入过后来退出）必须回落到「全部学科」，
+        // 不能停在那个学科上——否则页面显示的是学生选不到的范围
+        const current = names.indexOf(select.value) >= 0 ? select.value : '';
+        select.innerHTML = '<option value="">全部学科</option>'
+            + names.map(function (item) {
+                return '<option value="' + esc(item) + '">' + esc(item) + '</option>';
+            }).join('');
+        select.value = current;
+    }
+
+    /* ---------------- 渲染 ---------------- */
+    function render(data, host) {
+        const student = data.student || {};
+        const summary = data.summary || {};
+        $('student-meta').textContent = (student.name || student.username || '学生')
+            + (student.student_no ? '（' + student.student_no + '）' : '')
+            + ' · ' + (data.date || '') + ' · 统计范围：' + (data.scope_display || '全部学科');
+
+        if (data.insufficient) {
+            // 两类「范围问题」不要给出错误的出口：
+            //   * 一个学科班都没加入 → 学生自己无法操作，只能联系老师；
+            //   * 深链越界 → 从下拉里挑一个已加入的学科即可。
+            // 只有「该学科确实没题」才给「换学科 / 去考试」这类可点出口。
+            const scopeBlocked = !HAS_SUBJECT_SCOPE
+                || (!!data.subject && (data.selectable_subjects || []).indexOf(data.subject) < 0);
+            host.innerHTML = emptyState(
+                data.message, 'bi-clipboard-data',
+                scopeBlocked ? '' : (data.mode === 'starter' ? emptyActions() : ''),
+                scopeBlocked ? scopeHint() : undefined
+            );
+            return;
+        }
+
+        const items = data.items || [];
+        state.items = items;
+        // 入门练习要说清「为什么这组题不是按薄弱点推的」，否则学生会以为推荐失灵
+        let html = data.mode === 'starter' ? starterBanner() : '';
+        html += kpiRow(data);
+        if (data.weak_points && data.weak_points.length) html += weakRow(data.weak_points);
+        if (data.message && !items.length) {
+            html += '<div class="alert alert-info py-2 small mt-3 mb-0">' + esc(data.message) + '</div>';
+        }
+        if (!items.length) {
+            host.innerHTML = html + emptyState('没有可推荐的题目了，换个学科或稍后再来。', 'bi-search');
+            return;
+        }
+        html += '<div class="practice-bar mt-3" id="practice-bar"></div>'
+            + '<div class="row g-3 mt-1">'
+            + items.map(cardHtml).join('')
+            + '</div>'
+            + footerHtml(data);
+        host.innerHTML = html;
+        // 重新渲染后（例如点了「AI 优化推荐理由」）已判过的卡片要恢复锁定与对错着色
+        Array.prototype.forEach.call(host.querySelectorAll('.practice-card'), function (card) {
+            const result = state.results[card.getAttribute('data-qid')];
+            if (result) markResult(card, result);
+        });
+        updatePracticeBar();
+    }
+
+    function kpiRow(data) {
+        const summary = data.summary || {};
+        const starter = data.mode === 'starter' || summary.mode === 'starter';
+        return '<div class="row g-3">'
+            + kpi('本次推荐', num(summary.returned) + ' 题',
+                  '候选池 ' + num(summary.candidate_count) + ' 题')
+            // 入门练习没有掌握度可谈，「薄弱知识点 0 个 / 驱动本次推荐」语义矛盾
+            + (starter
+                ? kpi('入门练习', '覆盖 ' + num(starterKnowledgeCount(data)) + ' 个知识点',
+                      '建立掌握度基线')
+                : kpi('薄弱知识点', num(summary.weak_point_count) + ' 个',
+                      '驱动本次推荐'))
+            + kpi('平均匹配度', summary.avg_match === null ? '—' : pct(summary.avg_match * 100),
+                  '越高越贴合你的弱项')
+            + kpi('目标难度', num(data.target_difficulty),
+                  '略高于当前水平')
+            + kpi('协同过滤', summary.cf_available ? '已启用' : '样本不足',
+                  starter ? '入门练习不依赖协同过滤'
+                          : (summary.cf_available ? '参考同类错题' : '仅按掌握度推荐'))
+            // starter 的 answered_count 是该学科口径（通常为 0），
+            // 与「入门练习」并列时容易被误读成「系统没读到我的数据」
+            + (starter
+                ? kpi('该学科答题', num(summary.answered_count) + ' 题', '入门练习的起点')
+                : kpi('已判分题数', num(summary.answered_count) + ' 题',
+                      '推荐的数据来源'))
+            + '</div>';
+    }
+
+    /**
+     * 入门练习覆盖的知识点数：优先用后端统计（summary.starter_knowledge_points），
+     * 缺失时按本次返回的题目去重兜底。
+     */
+    function starterKnowledgeCount(data) {
+        const summary = data.summary || {};
+        if (summary.starter_knowledge_points !== undefined
+            && summary.starter_knowledge_points !== null) {
+            return summary.starter_knowledge_points;
+        }
+        const names = {};
+        (data.items || []).forEach(function (item) {
+            if (item.knowledge_point) names[item.knowledge_point] = true;
+        });
+        return Object.keys(names).length;
+    }
+
+    function kpi(label, value, foot) {
+        return '<div class="col-6 col-md-4 col-xl-2"><div class="kpi-card">'
+            + '<div class="kpi-label">' + esc(label) + '</div>'
+            + '<div class="kpi-value">' + value + '</div>'
+            + '<div class="kpi-foot">' + foot + '</div>'
+            + '</div></div>';
+    }
+
+    function weakRow(weakPoints) {
+        return '<div class="row g-3 mt-1"><div class="col-12"><div class="kpi-card">'
+            + '<div class="kpi-label mb-2">本次推荐的依据（薄弱知识点，按薄弱度排序）</div>'
+            + weakPoints.map(function (row) {
+                return '<span class="kp-chip" title="' + esc(row.full_path) + '">'
+                    + esc(row.name)
+                    + '<span class="kp-acc">' + pct((row.accuracy || 0) * 100) + '</span>'
+                    + '<span class="text-muted ms-1">·' + num(row.answered) + '题</span>'
+                    + '</span>';
+            }).join('')
+            + '</div></div></div>';
+    }
+
+    /** 单选 / 判断：点一个换一个；多选：可同时选多个（与考试答题页一致）。 */
+    function answerArea(item) {
+        const options = item.options || [];
+        const multiple = item.type === 'multiple';
+        if (!options.length && item.type === 'judge') {
+            // 判断题：正确 / 错误（选项缺失时用内置选项兜底，避免退化成文本框）
+            options.push({ label: 'A', content: '正确' }, { label: 'B', content: '错误' });
+        }
+        if (options.length) {
+            return '<div class="pc-answer" data-multiple="' + multiple + '">'
+                + options.map(function (option) {
+                    return '<div class="option-row" data-label="' + esc(option.label) + '">'
+                        + '<span class="option-label">' + esc(option.label) + '</span>'
+                        + '<span class="option-content">' + esc(option.content) + '</span></div>';
+                }).join('')
+                + (multiple ? '<div class="form-text mt-1">多选题：可同时选择多个选项。</div>' : '')
+                + '</div>';
+        }
+        if (item.type === 'fill') {
+            return '<div class="pc-answer">'
+                + '<textarea class="form-control" rows="3" placeholder="每个空写一行"></textarea>'
+                + '<div class="form-text">多个空请分多行填写，顺序与题目中的空一致。</div></div>';
+        }
+        const rows = item.type === 'essay' ? 10 : 6;
+        return '<div class="pc-answer">'
+            + '<textarea class="form-control" rows="' + rows + '" placeholder="请在这里作答…"></textarea>'
+            + '<div class="form-text">' + esc(item.type_display || '') + '没有唯一机器答案，提交后可对照参考答案自评。</div>'
+            + '</div>';
+    }
+
+    function cardHtml(item, index) {
+        const badge = DIFFICULTY_BADGE[item.difficulty] || 'badge-soft badge-soft-gray';
+        const matchWidth = Math.max(2, Math.round((item.match_score || 0) * 100));
+        // 选择题的正确选项字母（判后才会用到，用于标出正确答案）
+        const choice = ['single', 'multiple', 'judge'].indexOf(item.type) >= 0;
+        const correct = choice ? String(item.reference_answer || '').replace(/[^A-D]/g, '') : '';
+        const done = state.results ? state.results[item.question_id] : null;
+        return '<div class="col-12 col-xl-6"><div class="practice-card" data-qid="' + item.question_id
+            + '" data-type="' + esc(item.type) + '" data-correct="' + esc(correct) + '">'
+            + headHtml(item, index, badge)
+            + bodyHtml(item, matchWidth)
+            + '<div class="px-3 pb-3">'
+            + (done ? '' : '<div class="d-flex gap-2">'
+                + '<button class="btn btn-sm btn-primary flex-grow-1" data-submit>'
+                + '<i class="bi bi-check2-circle me-1"></i> 提交作答</button>'
+                + '<button class="btn btn-sm btn-outline-secondary" data-toggle-answer disabled '
+                + 'title="先提交作答，再看答案与解析">'
+                + '<i class="bi bi-eye me-1"></i> 查看答案</button></div>')
+            + '<div data-result>' + (done ? resultHtml(item, done) : '') + '</div>'
+            + '<div class="answer-box mt-2 d-none" data-answer>'
+            + '<div class="fw-semibold mb-1">参考答案</div>'
+            + esc(item.reference_answer || '（略）')
+            + (item.analysis ? '<span class="fw-semibold d-block mb-1 mt-2">解析</span>'
+                + esc(item.analysis) : '')
+            + '</div>'
+            + '</div>'
+            + '</div></div>';
+    }
+
+    function headHtml(item, index, badge) {
+        return '<div class="pc-head">'
+            + '<div class="d-flex align-items-center gap-2">'
+            + '<span class="pc-order">' + num(item.order || index + 1) + '</span>'
+            + '<span class="badge badge-soft badge-soft-gray">' + esc(item.type_display || '') + '</span>'
+            + '<span class="badge ' + badge + '">' + esc(item.difficulty_display || '') + '</span>'
+            + (item.answered_before ? '<span class="badge badge-soft badge-soft-amber">做错过</span>' : '')
+            + (item.source === 'ai' ? '<span class="badge badge-soft badge-soft-blue">AI 理由</span>' : '')
+            + '</div>'
+            + '<span class="stat-pill">匹配度 ' + pct(item.match_percent) + '</span>'
+            + '</div>';
+    }
+
+    function bodyHtml(item, matchWidth) {
+        return '<div class="pc-body">'
+            + '<div class="small text-muted mb-2"><i class="bi bi-bookmark-star"></i> '
+            + esc(item.knowledge_point || '') + '</div>'
+            + '<div class="pc-stem">' + esc(item.stem || '') + '</div>'
+            + answerArea(item)
+            + '<div class="mt-3"><div class="d-flex justify-content-between small text-muted mb-1">'
+            + '<span>推荐匹配度</span><span>' + pct(item.match_percent) + '</span></div>'
+            + '<div class="match-bar"><span style="width:' + matchWidth + '%"></span></div></div>'
+            + '<div class="reason-box mt-3"><i class="bi bi-lightbulb text-warning"></i> '
+            + esc(reasonText(item.reason) || '') + '</div>'
+            + '</div>';
+    }
+
+    function resultHtml(item, result) {
+        const tone = result.status === 'right' ? 'is-right'
+            : (result.status === 'wrong' ? 'is-wrong' : 'is-self');
+        const title = result.status === 'right' ? '<i class="bi bi-check-circle-fill text-success"></i> 答对了'
+            : (result.status === 'wrong' ? '<i class="bi bi-x-circle-fill text-danger"></i> 答错了'
+                : '<i class="bi bi-pencil-square text-warning"></i> 请对照参考答案自评');
+        let html = '<div class="pc-result ' + tone + '">'
+            + '<div class="fw-semibold mb-1">' + title + '</div>';
+        if (result.mine) {
+            html += '<div class="pc-line">你的答案：' + esc(result.mine) + '</div>';
+        }
+        if (result.status !== 'self') {
+            html += '<div class="pc-line">正确答案：' + esc(result.standard || '（略）') + '</div>';
+        }
+        if (result.status === 'wrong' && result.hint) {
+            html += '<div class="pc-line text-muted mt-1">' + esc(result.hint) + '</div>';
+        }
+        html += '<div class="mt-2 d-flex gap-2">'
+            + '<button class="btn btn-sm btn-outline-secondary" data-toggle-answer>'
+            + '<i class="bi bi-eye me-1"></i> 查看答案与解析</button>'
+            + '<button class="btn btn-sm btn-outline-primary" data-redo>'
+            + '<i class="bi bi-arrow-counterclockwise me-1"></i> 再做一次</button>'
+            + '</div></div>';
+        return html;
+    }
+
+    function footerHtml(data) {
+        const summary = data.summary || {};
+        const starter = data.mode === 'starter' || summary.mode === 'starter';
+        // 入门练习没有历史正确率，公式口径必须跟着换，
+        // 否则页脚会自称「按知识点薄弱度算」——那是另一套推荐的算法
+        const hint = starter
+            ? '匹配度 = 难度贴合度（入门练习按难度梯度与知识点覆盖抽取，不参考历史正确率）'
+            : '匹配度 = (知识点薄弱度 × 证据充分度 × ' + '65% + 难度适配度 × 35%)'
+              + (summary.cf_available ? ' × (1 + 30% × 协同相似度)' : '');
+        return '<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">'
+            + '<span class="text-muted small">' + esc(hint)
+            + '　同一知识点每次最多推荐 '
+            + num((data.thresholds || {}).max_per_knowledge_point) + ' 道</span>'
+            + (data.has_more
+                ? '<button class="btn btn-outline-primary btn-sm" id="btn-more">'
+                  + '换一批 <i class="bi bi-arrow-right"></i></button>'
+                : '<span class="text-muted small">已到候选池末尾</span>')
+            + '</div>';
+    }
+
+    /** 入门练习说明条。 */
+    function starterBanner() {
+        return '<div class="alert alert-info py-2 small mb-3" role="status">'
+            + '<i class="bi bi-info-circle me-1"></i>'
+            + '这是入门练习：你还没有该学科的答题记录，做完这组会开始按你的掌握度做个性化推荐。'
+            + '</div>';
+    }
+
+    /** 「没题」空态的可操作出口：换学科 + 去参加考试。 */
+    function emptyActions() {
+        // 换学科的候选同样只能来自「已加入的学科」，否则点一下就撞到范围拦截
+        const subjects = (state.payload && state.payload.selectable_subjects) || [];
+        let html = '<div class="d-flex flex-wrap gap-2 justify-content-center align-items-center mt-3">';
+        if (subjects.length) {
+            html += '<select class="form-select form-select-sm" id="empty-subject-select" '
+                + 'style="max-width:180px" aria-label="换一个学科">'
+                + '<option value="">换个学科…</option>'
+                + subjects.map(function (item) {
+                    return '<option value="' + esc(item) + '">' + esc(item) + '</option>';
+                }).join('')
+                + '</select>';
+        }
+        html += '<a class="btn btn-sm btn-outline-primary" href="/my-exams/">'
+            + '<i class="bi bi-journal-check me-1"></i>去参加考试</a>'
+            + '</div>';
+        return html;
+    }
+
+    function emptyState(message, icon, actions, hint) {
+        const text = hint !== undefined ? hint
+            : (actions
+                ? '换一个学科看看，或者先参加一次考试。'
+                : '完成一次考试并判分后，这里会根据你的薄弱知识点给出练习建议。');
+        return '<div class="text-center text-muted py-5">'
+            + '<i class="bi ' + (icon || 'bi-inbox') + ' d-block mb-2" style="font-size:36px;opacity:.4"></i>'
+            + esc(message || '暂无数据')
+            + '<br><span class="small">' + esc(text) + '</span>'
+            + (actions || '')
+            + '</div>';
+    }
+
+    /** 学科范围被拦时的补充说明（message 已说清原因，这里只给下一步）。 */
+    function scopeHint() {
+        return HAS_SUBJECT_SCOPE
+            ? '请从上方下拉里选择一个你已加入的学科。'
+            : '请联系任课教师把你加入对应学科班。';
+    }
+
+    function renderAiBanner(ai) {
+        const host = $('ai-banner-host');
+        if (!ai) { host.innerHTML = ''; return; }
+        const starter = (state.payload || {}).mode === 'starter';
+        const title = starter ? '入门练习说明' : 'AI 推荐说明';
+        const tone = ai.degraded ? 'alert-warning' : 'alert-light border';
+        host.innerHTML = '<div class="ai-banner mb-3 ' + tone + '">'
+            + '<div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-1">'
+            + '<strong class="small"><i class="bi bi-stars text-primary"></i> ' + title + '</strong>'
+            + '<span class="d-flex gap-1">'
+            + (ai.is_mock ? '<span class="badge badge-soft badge-soft-gray">本地模拟</span>' : '')
+            + (ai.cached ? '<span class="badge badge-soft badge-soft-teal">命中缓存</span>' : '')
+            + (ai.degraded ? '<span class="badge badge-soft badge-soft-amber">已降级</span>' : '')
+            + '</span></div>'
+            + '<div class="small" style="line-height:1.7">' + esc(reasonText(ai.reason) || '') + '</div>'
+            + (ai.degraded ? '<div class="small text-muted mt-1">'
+                + esc(ai.degraded_reason || '') + '（已保留本地推荐理由）</div>' : '')
+            + '</div>';
+    }
+
+    /* ---------------- 作答与判定 ---------------- */
+
+    /**
+     * 读一张卡片的作答结果。
+     * - 选择题 / 判断题：option-row 的 is-picked → 选中标签（如 "AB"）
+     * - 填空：多行文本（一行一个空）
+     * - 简答 / 论述：整段文本
+     */
+    function readAnswer(card) {
+        const area = card.querySelector('.pc-answer');
+        if (!area) return null;
+        if (area.querySelector('textarea')) {
+            return area.querySelector('textarea').value.trim();
+        }
+        return Array.prototype.map.call(
+            area.querySelectorAll('.option-row.is-picked'),
+            function (row) { return row.getAttribute('data-label') || ''; }
+        ).join('');
+    }
+
+    function hasAnswer(value) {
+        if (Array.isArray(value)) return value.length > 0;
+        return String(value || '').trim() !== '';
+    }
+
+    /** 文本标准化：忽略大小写、空白与常见标点差异（与判分服务的宽松口径对齐）。 */
+    function normalize(text) {
+        return String(text || '').replace(/\s+/g, '')
+            .replace(/[，。；、,.;:：]/g, '').toLowerCase();
+    }
+
+    /**
+     * 本地即时批改：客观题机器判，主观题交给用户对照参考答案自评。
+     * 返回 {status: 'right'|'wrong'|'self', standard, mine, hint}
+     */
+    function judge(item, value) {
+        const standard = String(item.reference_answer || '');
+        const type = item.type;
+        if (['single', 'multiple', 'judge'].indexOf(type) >= 0) {
+            const mine = String(value || '');
+            const setOf = function (text) {
+                return String(text || '').replace(/[^A-D]/g, '').split('');
+            };
+            const mineSet = setOf(mine).sort();
+            const stdSet = setOf(standard).sort();
+            const ok = mineSet.length > 0 && mineSet.join('') === stdSet.join('');
+            return {
+                status: ok ? 'right' : 'wrong',
+                standard: standard,
+                mine: mineSet.map(function (label) { return label; }).join('') || '（未作答）',
+                rightLabels: stdSet,
+                wrongLabels: mineSet.filter(function (label) { return stdSet.indexOf(label) < 0; }),
+                hint: ok ? '' : '对照参考答案看看思路差在哪一步。',
+            };
+        }
+        if (type === 'fill') {
+            const lines = function (text) {
+                return String(text || '').split('\n')
+                    .map(function (line) { return line.trim(); })
+                    .filter(function (line) { return line !== ''; });
+            };
+            const mineLines = lines(value);
+            const stdLines = lines(standard);
+            let ok = mineLines.length === stdLines.length && mineLines.length > 0;
+            for (let i = 0; ok && i < stdLines.length; i++) {
+                if (normalize(mineLines[i]) !== normalize(stdLines[i])) ok = false;
+            }
+            return {
+                status: ok ? 'right' : 'wrong',
+                standard: stdLines.join(' / ') || '（略）',
+                mine: mineLines.join(' / ') || '（未作答）',
+                hint: ok ? '' : '填空题按空给分，注意书写顺序要与题目一致。',
+            };
+        }
+        // 简答 / 论述：机器判不了，明确告知自评（不假装给了分数）
+        return {
+            status: 'self',
+            standard: standard,
+            mine: String(value || '').trim(),
+            hint: '主观题没有唯一机器答案，请对照参考答案给自己打个分。',
+        };
+    }
+
+    /** 判完把卡片锁住：选项按对错着色，文本框只读。 */
+    function markResult(card, result) {
+        const area = card.querySelector('.pc-answer');
+        if (area) {
+            area.classList.add('is-locked');
+            const rows = area.querySelectorAll('.option-row');
+            Array.prototype.forEach.call(rows, function (row) {
+                const label = row.getAttribute('data-label') || '';
+                if (!label) return;
+                row.classList.remove('is-picked');
+                if ((result.rightLabels || []).indexOf(label) >= 0) row.classList.add('is-right');
+                if ((result.wrongLabels || []).indexOf(label) >= 0) row.classList.add('is-wrong');
+            });
+            const area2 = area.querySelector('textarea');
+            if (area2) area2.setAttribute('readonly', 'readonly');
+        }
+    }
+
+    function unlockCard(card) {
+        const area = card.querySelector('.pc-answer');
+        if (!area) return;
+        area.classList.remove('is-locked');
+        Array.prototype.forEach.call(area.querySelectorAll('.option-row'), function (row) {
+            row.classList.remove('is-picked', 'is-right', 'is-wrong');
+        });
+        const textarea = area.querySelector('textarea');
+        if (textarea) { textarea.removeAttribute('readonly'); textarea.value = ''; }
+        const answer = card.querySelector('[data-answer]');
+        if (answer) answer.classList.add('d-none');
+    }
+
+    function updatePracticeBar() {
+        const bar = $('practice-bar');
+        if (!bar) return;
+        const items = state.items || [];
+        const results = state.results || {};
+        let done = 0, right = 0, objective = 0, selfCount = 0;
+        items.forEach(function (item) {
+            const result = results[item.question_id];
+            if (!result) return;
+            done += 1;
+            if (result.status === 'right') right += 1;
+            if (result.status === 'self') selfCount += 1; else objective += 1;
+        });
+        const rate = objective ? Math.round(right / objective * 100) : null;
+        bar.innerHTML = '<span class="pb-item">已作答 <strong>' + done + '</strong> / '
+            + items.length + ' 题</span>'
+            + '<span class="pb-item">客观题正确率 <strong>'
+            + (rate === null ? '—' : rate + '%') + '</strong></span>'
+            + (selfCount ? '<span class="text-muted small">其中 ' + selfCount
+                + ' 道主观题需要对照答案自评</span>' : '')
+            + '<span class="text-muted small ms-auto">'
+            + '<i class="bi bi-info-circle me-1"></i>练习是在本地即时批改，不计入考试成绩，'
+            + '也不会改变你的学情数据</span>';
+    }
+
+    document.addEventListener('click', function (event) {
+        const option = event.target.closest ? event.target.closest('.option-row') : null;
+        const card = event.target.closest ? event.target.closest('.practice-card') : null;
+        if (card && card.querySelector('.pc-answer.is-locked')) {
+            // 已判过的卡片不再接受修改（要重做请点「再做一次」）
+            if (!event.target.closest('[data-redo]') && !event.target.closest('[data-toggle-answer]')) return;
+        }
+
+        // 选择 / 取消选择选项
+        if (option && card) {
+            const area = card.querySelector('.pc-answer');
+            if (area.getAttribute('data-multiple') === 'true') {
+                option.classList.toggle('is-picked');
+            } else {
+                Array.prototype.forEach.call(area.querySelectorAll('.option-row'), function (row) {
+                    row.classList.remove('is-picked');
+                });
+                option.classList.add('is-picked');
+            }
+            return;
+        }
+
+        // 提交作答
+        if (event.target.closest && event.target.closest('[data-submit]')) {
+            const qid = card.getAttribute('data-qid');
+            const item = itemOf(qid);
+            if (!item) return;
+            const value = readAnswer(card);
+            if (!hasAnswer(value)) { UI.error('请先作答，再提交'); return; }
+            const result = judge(item, value);
+            state.results[qid] = result;
+            card.querySelector('[data-result]').innerHTML = resultHtml(item, result);
+            const toggle = card.querySelector('[data-toggle-answer]');
+            if (toggle) { toggle.disabled = false; toggle.removeAttribute('title'); }
+            Array.prototype.forEach.call(
+                card.querySelectorAll('[data-submit]'),
+                function (button) { button.parentNode.removeChild(button); }
+            );
+            markResult(card, result);
+            updatePracticeBar();
+            return;
+        }
+
+        // 再做一次
+        if (event.target.closest && event.target.closest('[data-redo]')) {
+            const qid = card.getAttribute('data-qid');
+            const item = itemOf(qid);
+            delete state.results[qid];
+            unlockCard(card);
+            card.querySelector('[data-result]').innerHTML = '';
+            const host = card.querySelector('.px-3.pb-3');
+            const buttons = '<div class="d-flex gap-2" data-redo-host>'
+                + '<button class="btn btn-sm btn-primary flex-grow-1" data-submit>'
+                + '<i class="bi bi-check2-circle me-1"></i> 提交作答</button>'
+                + '<button class="btn btn-sm btn-outline-secondary" data-toggle-answer disabled>'
+                + '<i class="bi bi-eye me-1"></i> 查看答案</button></div>';
+            host.insertAdjacentHTML('afterbegin', buttons);
+            void item;
+            updatePracticeBar();
+            return;
+        }
+
+        // 展开 / 收起答案与解析
+        if (event.target.closest && event.target.closest('[data-toggle-answer]')) {
+            const button = event.target.closest('[data-toggle-answer]');
+            if (button.disabled) return;
+            const box = card.querySelector('[data-answer]');
+            if (!box) return;
+            const hidden = box.classList.contains('d-none');
+            box.classList.toggle('d-none', !hidden);
+            button.innerHTML = hidden
+                ? '<i class="bi bi-eye-slash me-1"></i> 收起答案与解析'
+                : '<i class="bi bi-eye me-1"></i> 查看答案与解析';
+            return;
+        }
+    });
+
+    function itemOf(qid) {
+        return (state.items || []).filter(function (item) {
+            return String(item.question_id) === String(qid);
+        })[0] || null;
+    }
+
+    $('subject-select').addEventListener('change', function () { load(true); });
+
+    $('btn-shuffle').addEventListener('click', function () {
+        state.offset = state.offset + state.size;
+        load(false);
+    });
+
+    $('btn-ai-reason').addEventListener('click', async function () {
+        const button = this;
+        if (!window.confirm('AI 优化推荐理由会调用大模型（可能产生费用），确定继续？')) return;
+        UI.setBusy(button, true, '生成中…');
+        try {
+            const data = await API.post('/recommend/students/' + STUDENT_ID + '/practice/', {
+                subject: currentSubject(), size: state.size, offset: state.offset,
+            });
+            state.payload = data;
+            renderAiBanner(data.ai);
+            render(data, $('practice-host'));
+            UI.success((data.ai && data.ai.degraded) ? 'AI 暂不可用，已保留本地推荐理由'
+                                                     : '推荐理由已更新');
+        } catch (err) {
+            UI.error(UI.errorText(err));
+        } finally {
+            UI.setBusy(button, false);
+        }
+    });
+
+    // 「没题」空态里的换学科下拉是动态渲染的，同样用事件委托
+    document.addEventListener('change', function (event) {
+        if (event.target && event.target.id === 'empty-subject-select') {
+            $('subject-select').value = event.target.value;
+            load(true);
+        }
+    });
+
+    // 底部「换一批」是动态渲染出来的，用事件委托绑定
+    document.addEventListener('click', function (event) {
+        if (event.target && event.target.id === 'btn-more') {
+            state.offset = state.offset + state.size;
+            load(false);
+        }
+    });
+
+    // 首屏：先把 URL 上的学科写进下拉，再发第一个请求
+    primeInitialSubject();
+    load(true);
+})();
+</script>
+{% endblock %}

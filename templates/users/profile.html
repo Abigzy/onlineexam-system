@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}个人中心 · AI 在线考试与学情分析系统{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row g-4">
+
+        <!-- ------- 左：个人信息卡 ------- -->
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-body text-center p-4">
+                    {% if user.avatar %}
+                        <img src="{{ user.avatar.url }}" class="avatar-lg mb-3" alt="头像">
+                    {% else %}
+                        <div class="avatar-lg avatar-placeholder mx-auto mb-3" style="font-size:34px;">
+                            {{ user.display_name|slice:":1" }}
+                        </div>
+                    {% endif %}
+
+                    <h5 class="fw-bold mb-1">{{ user.display_name }}</h5>
+                    <div class="mb-3">
+                        <span class="badge role-badge role-{{ user.role }}">{{ user.get_role_display }}</span>
+                    </div>
+
+                    <ul class="list-unstyled small text-start mx-auto" style="max-width:260px;">
+                        <li class="d-flex justify-content-between py-2 border-bottom">
+                            <span class="text-muted">用户名</span><span class="fw-semibold">{{ user.username }}</span>
+                        </li>
+                        <li class="d-flex justify-content-between py-2 border-bottom">
+                            <span class="text-muted">学号 / 工号</span><span class="fw-semibold">{{ user.student_no|default:"—" }}</span>
+                        </li>
+                        <li class="d-flex justify-content-between py-2 border-bottom">
+                            <span class="text-muted">邮箱</span><span class="fw-semibold text-truncate">{{ user.email }}</span>
+                        </li>
+                        <li class="d-flex justify-content-between py-2 border-bottom">
+                            <span class="text-muted">手机号</span><span class="fw-semibold">{{ user.phone|default:"—" }}</span>
+                        </li>
+                        <li class="d-flex justify-content-between py-2 border-bottom">
+                            <span class="text-muted">学校 / 院系</span><span class="fw-semibold">{{ user.school|default:"—" }}</span>
+                        </li>
+                        <li class="d-flex justify-content-between py-2">
+                            <span class="text-muted">上次登录</span>
+                            <span class="fw-semibold">{{ user.last_login|date:"Y-m-d H:i"|default:"—" }}</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- ------- 右：编辑区 ------- -->
+        <div class="col-lg-8">
+            <!-- 资料编辑 -->
+            <div class="card mb-4">
+                <div class="card-header d-flex align-items-center gap-2">
+                    <i class="bi bi-person-vcard text-primary"></i> 编辑资料
+                </div>
+                <div class="card-body p-4">
+                    <form method="post" enctype="multipart/form-data" novalidate>
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="profile">
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">真实姓名</label>
+                                {{ form.real_name }}
+                                {% for e in form.real_name.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">邮箱</label>
+                                {{ form.email }}
+                                {% for e in form.email.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">手机号</label>
+                                {{ form.phone }}
+                                {% for e in form.phone.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">学号 / 工号</label>
+                                <div class="form-control form-control-lg bg-body-secondary">{{ user.student_no|default:"—" }}</div>
+                                <div class="form-text">由系统派发，不可修改</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">学校 / 院系</label>
+                                {{ form.school }}
+                                {% for e in form.school.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">头像</label>
+                                {{ form.avatar }}
+                                {% for e in form.avatar.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-brand mt-4">
+                            <i class="bi bi-check2-circle me-1"></i> 保存资料
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- 修改密码 -->
+            <div class="card">
+                <div class="card-header d-flex align-items-center gap-2">
+                    <i class="bi bi-shield-lock text-primary"></i> 修改密码
+                </div>
+                <div class="card-body p-4">
+                    <form method="post" novalidate>
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="password">
+
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">原密码</label>
+                                {{ password_form.old_password }}
+                                {% for e in password_form.old_password.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">新密码</label>
+                                {{ password_form.new_password }}
+                                {% for e in password_form.new_password.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">确认新密码</label>
+                                {{ password_form.confirm_password }}
+                                {% for e in password_form.confirm_password.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-outline-primary mt-4">
+                            <i class="bi bi-key me-1"></i> 修改密码
+                        </button>
+                        <span class="text-muted small ms-2">修改后其它设备的登录状态将失效</span>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

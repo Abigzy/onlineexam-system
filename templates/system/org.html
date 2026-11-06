@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}组织与基础数据 · 管理控制台{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">组织与基础数据</h4>
+            <div class="text-muted small">班级一览、学科分布、教师-学科绑定（只读；班级数据请在班级管理中维护）</div>
+        </div>
+        <a href="{% url 'classroom-list' %}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-people me-1"></i> 去班级管理
+        </a>
+    </div>
+</div>
+
+<div class="container py-4">
+
+    <!-- 概览 -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ org.classroom_total }}</div>
+                <div class="stat-label">班级总数</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ org.admin_class_total }}</div>
+                <div class="stat-label">行政班（学籍班）</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ org.subject_class_total }}</div>
+                <div class="stat-label">学科班（教学班）</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="stat-card">
+                <div class="stat-value">{{ org.unbound_teacher_total }}</div>
+                <div class="stat-label">未绑定学科的启用教师</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <!-- 班级列表 -->
+        <div class="col-12 col-lg-7">
+            <div class="table-card h-100">
+                <div class="p-3 border-bottom fw-semibold small">班级一览</div>
+                {% if org.classrooms %}
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>班级</th>
+                                <th>类型</th>
+                                <th class="d-none d-md-table-cell">年级</th>
+                                <th class="d-none d-md-table-cell">学科</th>
+                                <th>学生</th>
+                                <th>教师</th>
+                                <th class="text-end">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for room in org.classrooms %}
+                            <tr {% if not room.is_active %}class="text-muted"{% endif %}>
+                                <td class="small">
+                                    {{ room.name }}
+                                    {% if not room.is_active %}
+                                        <span class="badge badge-soft badge-soft-gray ms-1">已归档</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if room.class_type == 'admin' %}
+                                        <span class="badge badge-soft badge-soft-purple">行政班</span>
+                                    {% else %}
+                                        <span class="badge badge-soft badge-soft-teal">学科班</span>
+                                    {% endif %}
+                                </td>
+                                <td class="d-none d-md-table-cell small">{{ room.grade_year|default:"—" }}</td>
+                                <td class="d-none d-md-table-cell small">{{ room.subject|default:"—" }}</td>
+                                <td class="small">{{ room.student_total }}</td>
+                                <td class="small">{{ room.teacher_total }}</td>
+                                <td class="text-end">
+                                    <a href="{% url 'classroom-detail' room.id %}" class="btn btn-sm btn-outline-secondary">
+                                        查看
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <i class="bi bi-people"></i>
+                    <p class="mb-1">还没有创建班级</p>
+                    <a href="{% url 'classroom-list' %}" class="btn btn-brand btn-sm mt-2">去班级管理</a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- 学科分布 -->
+        <div class="col-12 col-lg-5">
+            <div class="table-card h-100">
+                <div class="p-3 border-bottom fw-semibold small">学科分布（题量 / 教师 / 考试）</div>
+                {% if org.subjects %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>学科</th>
+                                <th class="text-end">题量</th>
+                                <th class="text-end">教师</th>
+                                <th class="text-end">考试</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in org.subjects %}
+                            <tr>
+                                <td class="small">{{ row.subject }}</td>
+                                <td class="text-end small fw-semibold">{{ row.questions }}</td>
+                                <td class="text-end small">{{ row.teachers }}</td>
+                                <td class="text-end small">{{ row.exams }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <i class="bi bi-diagram-3"></i>
+                    <p class="mb-0 text-muted small">暂无学科数据：题库、考试与教师都还没有填写学科</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- 未绑定学科的教师 -->
+    <div class="table-card mt-4">
+        <div class="p-3 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <span class="fw-semibold small">未绑定学科的教师（{{ org.unbound_teacher_total }}）</span>
+            <span class="text-muted small">绑定后该教师只能管理本学科的资源</span>
+        </div>
+        {% if org.unbound_teachers %}
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>用户名</th>
+                        <th>姓名</th>
+                        <th class="d-none d-md-table-cell">邮箱</th>
+                        <th class="text-end">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for teacher in org.unbound_teachers %}
+                    <tr>
+                        <td class="font-monospace small">{{ teacher.username }}</td>
+                        <td class="small">{{ teacher.real_name|default:"—" }}</td>
+                        <td class="d-none d-md-table-cell small text-muted">{{ teacher.email|default:"—" }}</td>
+                        <td class="text-end">
+                            <a href="{% url 'manage-user-edit' teacher.id %}" class="btn btn-sm btn-outline-primary">
+                                去绑定学科
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-check2-circle"></i>
+            <p class="mb-0 text-muted small">所有启用教师都已绑定学科</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

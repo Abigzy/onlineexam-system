@@ -1,0 +1,368 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .kpi-card { border-radius: 16px; border: 1px solid var(--line-200, #e8edf4); background: #fff;
+                padding: 12px 14px; height: 100%; }
+    .kpi-card .kpi-label { font-size: 12px; color: #6b7686; }
+    .kpi-card .kpi-value { font-size: 22px; font-weight: 700; line-height: 1.2; }
+
+    .panel-card { border-radius: 16px; border: 1px solid var(--line-200, #e8edf4); background: #fff;
+                  height: 100%; }
+    .panel-card .panel-head { padding: 12px 16px; border-bottom: 1px dashed #eef2f7;
+                              display: flex; justify-content: space-between; align-items: center; }
+    .panel-card .panel-head h6 { margin: 0; font-size: 14px; font-weight: 600; }
+
+    .chart-box { width: 100%; height: 250px; padding: 6px 8px 10px; }
+
+    .risk-hero { border-radius: 18px; padding: 18px 20px; color: #fff; }
+    .risk-hero.lv-normal { background: linear-gradient(135deg, #64748b, #94a3b8); }
+    .risk-hero.lv-low { background: linear-gradient(135deg, #0ea5e9, #38bdf8); }
+    .risk-hero.lv-medium { background: linear-gradient(135deg, #d97706, #f59e0b); }
+    .risk-hero.lv-high { background: linear-gradient(135deg, #ea580c, #f97316); }
+    .risk-hero.lv-severe { background: linear-gradient(135deg, #b91c1c, #ef4444); }
+    .risk-hero .rh-score { font-size: 44px; font-weight: 800; line-height: 1; }
+    .risk-hero .rh-label { font-size: 13px; opacity: .9; }
+
+    .signal-card { border-radius: 12px; border: 1px solid #fee2e2; background: #fff7f7;
+                   padding: 12px 14px; height: 100%; }
+    .signal-card .sc-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+    .signal-card .sc-name { font-weight: 600; }
+    .signal-card .sc-reason { font-size: 13px; line-height: 1.7; margin-top: 6px; }
+    .signal-card .sc-evidence { font-size: 12px; color: #6b7686; margin-top: 6px;
+                                font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .signal-card .sc-advice { font-size: 12px; color: #9a3412; margin-top: 6px; }
+
+    .mini-table { font-size: 13px; }
+    .mini-table thead th { font-size: 12px; color: #6b7686; font-weight: 600;
+                           border-bottom: 1px solid var(--line-200, #e8edf4); white-space: nowrap; }
+    .mini-table td { vertical-align: middle; }
+
+    .ev-chip { font-size: 11px; padding: 1px 7px; border-radius: 6px;
+               background: #eef2ff; color: #4338ca; border: 1px solid #e0e7ff; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">作答证据链</h4>
+            <div class="text-muted small" id="attempt-meta">加载中…</div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="{% url 'proctoring-dashboard' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left me-1"></i> 返回看板
+            </a>
+            <button class="btn btn-outline-primary btn-sm" id="btn-refresh">
+                <i class="bi bi-arrow-clockwise me-1"></i> 刷新
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="container pb-5">
+    <div id="alert-host"></div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-lg-4">
+            <div class="risk-hero" id="risk-hero">
+                <div class="rh-label">风险等级</div>
+                <div class="rh-score" id="risk-score">—</div>
+                <div class="rh-label mt-1" id="risk-note">加载中…</div>
+            </div>
+        </div>
+        <div class="col-lg-8">
+            <div id="kpi-row" class="row g-3 h-100"></div>
+        </div>
+    </div>
+
+    <div class="panel-card mb-3">
+        <div class="panel-head">
+            <h6>命中规则（为什么判可疑）</h6>
+            <span class="text-muted" style="font-size:12px" id="signal-meta">—</span>
+        </div>
+        <div class="p-3" id="signals-host">
+            <div class="text-muted small">加载中…</div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-lg-5">
+            <div class="panel-card">
+                <div class="panel-head"><h6>事件类型分布</h6></div>
+                <div class="chart-box" id="type-chart"></div>
+            </div>
+        </div>
+        <div class="col-lg-7">
+            <div class="panel-card">
+                <div class="panel-head"><h6>事件时间线（按分钟）</h6></div>
+                <div class="chart-box" id="timeline-chart"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-lg-7">
+            <div class="panel-card">
+                <div class="panel-head">
+                    <h6>逐条行为埋点</h6>
+                    <span class="text-muted" style="font-size:12px" id="timeline-meta">—</span>
+                </div>
+                <div class="table-responsive" id="timeline-host">
+                    <div class="text-center text-muted py-5">加载中…</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="panel-card">
+                <div class="panel-head"><h6>环境与异常检测</h6></div>
+                <div class="p-3" id="env-host">
+                    <div class="text-muted small">加载中…</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script>
+(function () {
+    'use strict';
+
+    const ATTEMPT_ID = {{ attempt_id|default_if_none:0 }};
+    const charts = {};
+
+    function $(id) { return document.getElementById(id); }
+    function esc(text) {
+        return String(text === null || text === undefined ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+    function num(value, digits) {
+        if (value === null || value === undefined) return '—';
+        const v = Number(value);
+        if (!isFinite(v)) return '—';
+        return digits === undefined ? (Number.isInteger(v) ? String(v) : v.toFixed(1)) : v.toFixed(digits);
+    }
+
+    const LEVEL_CLASS = {
+        normal: 'lv-normal', low: 'lv-low', medium: 'lv-medium',
+        high: 'lv-high', severe: 'lv-severe',
+    };
+
+    function ensureChart(key, elementId) {
+        if (!window.echarts) return null;
+        if (!charts[key]) {
+            const element = $(elementId);
+            element.innerHTML = '';
+            charts[key] = echarts.init(element);
+        }
+        return charts[key];
+    }
+
+    async function load() {
+        if (!ATTEMPT_ID) {
+            $('alert-host').innerHTML = '<div class="alert alert-danger py-2 small">'
+                + '缺少作答 id。</div>';
+            return;
+        }
+        let data;
+        try {
+            data = await API.get('/proctoring/attempts/' + ATTEMPT_ID + '/evidence/');
+        } catch (err) {
+            $('alert-host').innerHTML = '<div class="alert alert-danger py-2 small">'
+                + esc(UI.errorText(err)) + '</div>';
+            return;
+        }
+        render(data);
+    }
+
+    function render(data) {
+        const attempt = data.attempt || {};
+        const risk = data.risk || {};
+        const metrics = data.metrics || {};
+
+        $('attempt-meta').textContent = attempt.student_name + ' · ' + attempt.exam_title
+            + ' · 作答 #' + attempt.id;
+        $('risk-hero').className = 'risk-hero ' + (LEVEL_CLASS[risk.level] || 'lv-normal');
+        $('risk-score').textContent = num(risk.score);
+        $('risk-note').textContent = (risk.level_display || '') + '｜' + (risk.note || '');
+
+        renderKpis(attempt, risk, metrics, data.anomaly || {});
+        renderSignals(risk.signals || []);
+        renderEnv(attempt, data.anomaly || {}, data.counter_check || {});
+        renderTimeline(data.timeline || []);
+        renderTypeChart(data.distribution || []);
+        renderTimelineChart(data.timeline || []);
+    }
+
+    function renderKpis(attempt, risk, metrics, anomaly) {
+        const cards = [
+            { label: '用时', value: num(attempt.duration_minutes) + ' 分钟' },
+            { label: '已作答', value: num(attempt.answered_count) + ' / ' + num(attempt.question_count) },
+            { label: '切屏', value: num(metrics.switch_count) },
+            { label: '粘贴', value: num(metrics.paste_count) },
+            { label: '退出全屏', value: num(metrics.fullscreen_exit_count) },
+            { label: '最长离开', value: num(metrics.max_absence_seconds) + 's' },
+            { label: '异常分', value: anomaly.available ? num(anomaly.attempt_score, 3) : '—' },
+            { label: '是否离群', value: anomaly.available ? (anomaly.is_outlier ? '是' : '否') : '—' },
+        ];
+        $('kpi-row').innerHTML = cards.map(function (card) {
+            return '<div class="col-6 col-md-3"><div class="kpi-card">'
+                + '<div class="kpi-label">' + esc(card.label) + '</div>'
+                + '<div class="kpi-value">' + esc(card.value) + '</div>'
+                + '</div></div>';
+        }).join('');
+    }
+
+    function renderSignals(signals) {
+        if (!signals.length) {
+            $('signal-meta').textContent = '未命中';
+            $('signals-host').innerHTML = '<div class="text-muted small">'
+                + '未命中任何可疑规则。这不等于「绝对没问题」，只说明该生行为未触发已配置的阈值。</div>';
+            return;
+        }
+        $('signal-meta').textContent = '共 ' + signals.length + ' 条，合计 '
+            + signals.reduce(function (sum, item) { return sum + item.points; }, 0) + ' 分';
+        $('signals-host').innerHTML = '<div class="row g-3">' + signals.map(function (signal) {
+            return '<div class="col-md-6"><div class="signal-card">'
+                + '<div class="sc-head"><span class="sc-name">' + esc(signal.name) + '</span>'
+                + '<span class="badge text-bg-danger">+ ' + num(signal.points) + ' 分</span></div>'
+                + '<div class="sc-reason">' + esc(signal.reason) + '</div>'
+                + '<div class="sc-evidence text-break">证据：' + esc(JSON.stringify(signal.evidence)) + '</div>'
+                + (signal.advice ? '<div class="sc-advice">建议：' + esc(signal.advice) + '</div>' : '')
+                + '</div></div>';
+        }).join('') + '</div>';
+    }
+
+    function renderEnv(attempt, anomaly, counterCheck) {
+        let html = '<table class="table table-sm mini-table mb-2"><tbody>'
+            + '<tr><td class="text-muted">开始时间</td><td>' + esc(attempt.started_at || '—') + '</td></tr>'
+            + '<tr><td class="text-muted">交卷时间</td><td>' + esc(attempt.submitted_at || '—') + '</td></tr>'
+            + '<tr><td class="text-muted">交卷原因</td><td>' + esc(attempt.submit_reason || '—')
+            + (attempt.is_timeout ? '（超时）' : '') + '</td></tr>'
+            + '<tr><td class="text-muted">IP</td><td>' + esc(attempt.ip_address || '—') + '</td></tr>'
+            + '<tr><td class="text-muted">User-Agent</td><td style="word-break:break-all">'
+            + esc(attempt.user_agent || '—') + '</td></tr>'
+            + '</tbody></table>';
+
+        if (anomaly.available) {
+            html += '<div class="small mb-2">离群检测：<strong>' + esc(anomaly.method_display) + '</strong>'
+                + '｜样本 ' + num(anomaly.sample_size) + ' 份｜异常分 '
+                + num(anomaly.attempt_score, 3)
+                + '｜' + (anomaly.is_outlier ? '<span class="text-danger">判为离群</span>' : '未判离群')
+                + (anomaly.top_feature ? '｜最突出特征：' + esc(anomaly.top_feature) : '')
+                + '</div>';
+        } else {
+            html += '<div class="alert alert-warning py-2 small">'
+                + esc(anomaly.reason || '异常检测不可用') + '</div>';
+        }
+
+        const consistent = counterCheck.consistent;
+        html += '<div class="alert ' + (consistent ? 'alert-success' : 'alert-warning')
+            + ' py-2 small mb-0">埋点与聚合计数核对：'
+            + (consistent ? '一致' : '不一致（埋点可能有缺失）')
+            + '<br>切屏 ' + num(counterCheck.switch_logged) + '/' + num(counterCheck.switch_count)
+            + '　粘贴 ' + num(counterCheck.paste_logged) + '/' + num(counterCheck.paste_count)
+            + '　退全屏 ' + num(counterCheck.fullscreen_logged) + '/'
+            + num(counterCheck.fullscreen_exit_count) + '</div>';
+
+        $('env-host').innerHTML = html;
+    }
+
+    function renderTimeline(timeline) {
+        $('timeline-meta').textContent = '共 ' + timeline.length + ' 条';
+        if (!timeline.length) {
+            $('timeline-host').innerHTML = '<div class="text-center text-muted py-5">'
+                + '本次作答没有采集到行为埋点。</div>';
+            return;
+        }
+        let html = '<table class="table table-hover mini-table mb-0"><thead><tr>'
+            + '<th>时间</th><th>类型</th><th class="text-end">条数</th>'
+            + '<th class="text-end">时长</th><th class="text-end">题号</th><th>来源</th>'
+            + '</tr></thead><tbody>';
+        timeline.forEach(function (row) {
+            html += '<tr>'
+                + '<td>' + esc(row.occurred_at) + '</td>'
+                + '<td><span class="ev-chip">' + esc(row.event_display) + '</span></td>'
+                + '<td class="text-end">' + num(row.count) + '</td>'
+                + '<td class="text-end">' + (row.duration_seconds
+                    ? num(row.duration_seconds) + 's' : '—') + '</td>'
+                + '<td class="text-end">' + (row.question_index ? num(row.question_index) : '—') + '</td>'
+                + '<td class="text-muted" style="font-size:12px">' + esc(row.ip_address || '—') + '</td>'
+                + '</tr>';
+        });
+        html += '</tbody></table>';
+        $('timeline-host').innerHTML = html;
+    }
+
+    function renderTypeChart(distribution) {
+        const chart = ensureChart('type', 'type-chart');
+        if (!chart) return;
+        if (!distribution.length) {
+            chart.clear();
+            return;
+        }
+        chart.setOption({
+            tooltip: { trigger: 'item' },
+            legend: { bottom: 0, type: 'scroll', itemWidth: 10, itemHeight: 10 },
+            series: [{
+                type: 'pie',
+                radius: ['42%', '68%'],
+                center: ['50%', '44%'],
+                data: distribution.map(function (row) {
+                    return { name: row.display, value: row.count };
+                }),
+                label: { formatter: '{b}: {c}' },
+            }],
+        });
+    }
+
+    function renderTimelineChart(timeline) {
+        const chart = ensureChart('timeline', 'timeline-chart');
+        if (!chart) return;
+        if (!timeline.length) {
+            chart.clear();
+            return;
+        }
+        // 按「分钟」聚合（时间字符串形如 YYYY-MM-DD HH:MM:SS）
+        const buckets = {};
+        timeline.forEach(function (row) {
+            const key = String(row.occurred_at || '').slice(0, 16);
+            if (!key) return;
+            buckets[key] = (buckets[key] || 0) + (row.count || 1);
+        });
+        const keys = Object.keys(buckets).sort();
+        chart.setOption({
+            tooltip: { trigger: 'axis' },
+            grid: { left: 40, right: 16, top: 16, bottom: 40 },
+            xAxis: {
+                type: 'category',
+                data: keys.map(function (key) { return key.slice(11); }),
+                axisLabel: { rotate: 40, fontSize: 10 },
+            },
+            yAxis: { type: 'value', minInterval: 1 },
+            series: [{
+                type: 'bar',
+                data: keys.map(function (key) { return buckets[key]; }),
+                itemStyle: { color: '#f97316' },
+                barMaxWidth: 24,
+            }],
+        });
+    }
+
+    $('btn-refresh').addEventListener('click', load);
+    window.addEventListener('resize', function () {
+        Object.keys(charts).forEach(function (key) { charts[key].resize(); });
+    });
+
+    load();
+})();
+</script>
+{% endblock %}

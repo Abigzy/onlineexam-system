@@ -1,0 +1,668 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}答题 · {{ exam_title }}{% endblock %}
+
+{% block extra_css %}
+{% endblock %}
+
+{% block content %}
+<div class="exam-bar">
+    <div class="container d-flex flex-wrap align-items-center gap-3 justify-content-between">
+        <div class="d-flex align-items-center gap-3">
+            <div>
+                <div class="fw-semibold" style="line-height:1.2">{{ exam_title }}</div>
+                <div class="text-muted" style="font-size:12px" id="bar-paper-info">—</div>
+            </div>
+        </div>
+
+        <div class="d-flex align-items-center gap-4">
+            <div class="text-center">
+                <div class="exam-timer" id="timer">--:--</div>
+                <div class="text-muted" style="font-size:11px">剩余时间</div>
+            </div>
+            <div class="text-center">
+                <div class="fw-bold" style="font-size:20px" id="progress-text">0/0</div>
+                <div class="text-muted" style="font-size:11px">已作答</div>
+            </div>
+            <div class="text-end">
+                <div class="save-flag" id="save-flag">尚未保存</div>
+                <div class="text-muted" style="font-size:11px" id="cheat-stat">切屏 0 次</div>
+            </div>
+        </div>
+
+        <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-outline-secondary btn-sm" id="btn-mode">
+                <i class="bi bi-list-ul me-1"></i>全卷模式
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" id="btn-fullscreen" title="进入全屏">
+                <i class="bi bi-arrows-fullscreen"></i>
+            </button>
+            <button class="btn btn-brand btn-sm" id="btn-submit">
+                <i class="bi bi-send me-1"></i>交卷
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="container py-3">
+    <div class="row g-3" id="loading-box">
+        <div class="col-12 text-center text-muted py-5">
+            <div class="spinner-border text-primary mb-2"></div>
+            <div>正在准备试卷…</div>
+        </div>
+    </div>
+
+    <div class="row g-3 d-none" id="exam-body">
+        <!-- 左：答题卡 -->
+        <div class="col-12 col-lg-3" id="sheet-col">
+            <div class="sheet-card mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <strong style="font-size:14px">答题卡</strong>
+                    <span class="text-muted" style="font-size:12px" id="sheet-progress">0/0</span>
+                </div>
+                <div class="q-sheet" id="q-sheet"></div>
+                <div class="d-flex flex-wrap gap-3 mt-3" style="font-size:12px">
+                    <span><i class="legend-dot legend-answered"></i> 已答</span>
+                    <span><i class="legend-dot legend-unanswered"></i> 未答</span>
+                    <span><i class="legend-dot legend-flagged"></i> 已标记</span>
+                </div>
+            </div>
+
+            <div class="sheet-card">
+                <div class="small text-muted" id="exam-notice">—</div>
+            </div>
+        </div>
+
+        <!-- 右：题目 -->
+        <div class="col-12 col-lg-9">
+            <div class="cheat-banner d-none mb-3" id="cheat-banner"></div>
+
+            <div class="question-card p-4" id="question-host"></div>
+
+            <div class="d-flex justify-content-between align-items-center mt-3" id="pager">
+                <button class="btn btn-outline-secondary btn-sm" id="btn-prev">
+                    <i class="bi bi-chevron-left"></i> 上一题
+                </button>
+                <button class="btn btn-outline-warning btn-sm" id="btn-flag">
+                    <i class="bi bi-flag"></i> 标记待复查
+                </button>
+                <button class="btn btn-brand btn-sm" id="btn-next">
+                    下一题 <i class="bi bi-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 交卷确认 -->
+<div class="modal fade" id="submitModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title">确认交卷</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="submit-summary" class="mb-2">—</div>
+                <div class="alert alert-warning small mb-0">
+                    交卷后不能再修改答案。请确认所有题目都已作答。
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">继续检查</button>
+                <button class="btn btn-brand btn-sm" id="btn-confirm-submit">确认交卷</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 强制交卷遮罩（切屏超限 / 时间到） -->
+<div class="proctor-shield" id="shield">
+    <div>
+        <i class="bi bi-exclamation-octagon" style="font-size:52px"></i>
+        <h5 class="mt-3" id="shield-title">已强制交卷</h5>
+        <p class="mb-3" id="shield-desc">正在跳转到结果页…</p>
+        <div class="spinner-border spinner-border-sm"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(function () {
+    'use strict';
+
+    const EXAM_ID = {{ exam_id }};
+    const AUTOSAVE_MS = {{ autosave_seconds }} * 1000;
+    const HEARTBEAT_MS = {{ heartbeat_seconds }} * 1000;
+    const TYPE_OBJECTIVE = ['single', 'multiple', 'judge'];
+    const TYPE_LABEL = { single: '单选题', multiple: '多选题', judge: '判断题',
+                         fill: '填空题', short: '简答题', essay: '论述题' };
+
+    const state = {
+        attempt: null, exam: null, paper: null, config: {}, behavior: {},
+        questions: [], byId: {}, answers: {},
+        currentIndex: 0, mode: 'single', remaining: 0, finished: false,
+        dirty: new Set(), saving: false, questionEnterTs: Date.now(),
+        started: false,
+    };
+
+    const $ = function (id) { return document.getElementById(id); };
+    const modal = new bootstrap.Modal($('submitModal'));
+
+    function esc(text) {
+        return String(text === null || text === undefined ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function fmtSeconds(sec) {
+        sec = Math.max(0, Math.floor(Number(sec || 0)));
+        const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+        const pad = function (n) { return String(n).padStart(2, '0'); };
+        return h > 0 ? h + ':' + pad(m) + ':' + pad(s) : pad(m) + ':' + pad(s);
+    }
+    function isObjective(type) { return TYPE_OBJECTIVE.indexOf(type) >= 0; }
+    function answerOf(pqId) {
+        if (!state.answers[pqId]) {
+            state.answers[pqId] = { paper_question_id: pqId, selected_labels: '',
+                                    answer_text: '', is_flagged: false, time_spent_seconds: 0 };
+        }
+        return state.answers[pqId];
+    }
+    function answered(pqId) {
+        const a = answerOf(pqId);
+        const q = state.byId[pqId];
+        return isObjective(q.question_type) ? !!a.selected_labels : !!(a.answer_text || '').trim();
+    }
+    function answeredCount() {
+        return state.questions.filter(function (q) { return answered(q.paper_question_id); }).length;
+    }
+
+    /* ==================== 启动 ==================== */
+    async function boot() {
+        try {
+            const data = await API.post('/exams/' + EXAM_ID + '/start/', {});
+            applyPayload(data, false);
+        } catch (err) {
+            $('loading-box').innerHTML = '<div class="col-12 text-center py-5">'
+                + '<i class="bi bi-slash-circle text-danger" style="font-size:40px"></i>'
+                + '<h5 class="mt-3">无法进入考试</h5>'
+                + '<p class="text-muted">' + esc(UI.errorText(err)) + '</p>'
+                + '<a class="btn btn-outline-secondary btn-sm" href="/my-exams/">返回我的考试</a></div>';
+        }
+    }
+
+    function applyPayload(data, resync) {
+        if (data.finished) {
+            showShield('本次作答已结束', '正在跳转到结果页…');
+            setTimeout(function () { location.href = '/exams/' + EXAM_ID + '/result/'; }, 1200);
+            return;
+        }
+
+        state.attempt = data.attempt;
+        state.exam = data.exam;
+        state.paper = data.paper;
+        state.config = data.config || {};
+        state.behavior = data.behavior || {};
+        // 用服务端落库的真实计数初始化「切屏/粘贴」显示——否则刷新或断网续考重进时
+        // 界面仍停在写死的「切屏 0 次」，与教师端看到的计数对不上
+        if (state.behavior) updateCheatStat(state.behavior);
+        state.questions = data.questions || [];
+        state.remaining = data.remaining_seconds || 0;
+
+        state.byId = {};
+        state.questions.forEach(function (q) { state.byId[q.paper_question_id] = q; });
+
+        // 恢复已存答案（断网续考的关键一步）
+        state.questions.forEach(function (q) {
+            const saved = q.answer || {};
+            state.answers[q.paper_question_id] = {
+                paper_question_id: q.paper_question_id,
+                selected_labels: saved.selected_labels || '',
+                answer_text: saved.answer_text || '',
+                is_flagged: !!saved.is_flagged,
+                time_spent_seconds: saved.time_spent_seconds || 0,
+            };
+        });
+
+        $('loading-box').classList.add('d-none');
+        $('exam-body').classList.remove('d-none');
+
+        $('bar-paper-info').textContent = state.paper.title + ' · 满分 '
+            + state.paper.total_score + ' 分 · ' + state.paper.question_count + ' 题';
+        $('exam-notice').innerHTML = '<strong>考前须知</strong><br>'
+            + (state.exam.description ? esc(state.exam.description) : '（无）')
+            + '<br><br><span class="text-muted">答题过程中系统会自动保存，中途断网不会丢失已作答的内容，'
+            + '重新打开本页即可继续。</span>';
+
+        if (state.config.fullscreen_required && !document.fullscreenElement) {
+            requestFullscreen();
+        }
+        renderSheet();
+        renderQuestion();
+        startTimer();
+        startHeartbeat();
+        startAutosave();
+        bindProctor();
+        if (resync) UI.toast('已与服务端同步剩余时间', 'info');
+    }
+
+    /* ==================== 计时 ==================== */
+    let timerHandle = null;
+    function startTimer() {
+        if (timerHandle) clearInterval(timerHandle);
+        paintTimer();
+        timerHandle = setInterval(function () {
+            if (state.finished) return;
+            state.remaining = Math.max(0, state.remaining - 1);
+            paintTimer();
+            if (state.remaining <= 0) {
+                clearInterval(timerHandle);
+                doSubmit('timeout', true);
+            }
+        }, 1000);
+    }
+    function paintTimer() {
+        const el = $('timer');
+        el.textContent = fmtSeconds(state.remaining);
+        el.classList.toggle('warn', state.remaining <= 600 && state.remaining > 180);
+        el.classList.toggle('danger', state.remaining <= 180);
+
+        // 最后 5 分钟提醒一次，避免学生毫无准备地被收卷
+        if (state.remaining === 300 && !state.warned5) {
+            state.warned5 = true;
+            UI.toast('还剩 5 分钟，请抓紧作答并检查是否有漏答。', 'warning');
+        }
+    }
+
+    /* ==================== 心跳：以服务端时间为准 ==================== */
+    let hbHandle = null;
+    function startHeartbeat() {
+        if (hbHandle) clearInterval(hbHandle);
+        hbHandle = setInterval(async function () {
+            if (state.finished) return;
+            try {
+                const data = await API.post('/attempts/' + state.attempt.id + '/heartbeat/',
+                                            { client_remaining: state.remaining });
+                // 服务端才是权威：本地时钟被改过、页面被挂起，都以这里为准
+                state.remaining = data.remaining_seconds;
+                paintTimer();
+                if (data.should_submit || data.force_submit) {
+                    doSubmit('forced', true);
+                }
+                if (data.clock_drift_seconds && Math.abs(data.clock_drift_seconds) > 60) {
+                    UI.toast('检测到本机时间与服务器不一致，已按服务器时间校准。', 'warning');
+                }
+            } catch (err) {
+                // 心跳失败不弹错——断网时会一直失败，弹窗只会干扰答题
+                console.warn('heartbeat failed', err);
+            }
+        }, HEARTBEAT_MS);
+    }
+
+    /* ==================== 自动保存 ==================== */
+    let asHandle = null;
+    function startAutosave() {
+        if (asHandle) clearInterval(asHandle);
+        asHandle = setInterval(function () {
+            if (!state.finished && state.dirty.size) flush();
+        }, AUTOSAVE_MS);
+    }
+
+    function markDirty(pqId) {
+        state.dirty.add(pqId);
+        setSaveFlag('pending');
+    }
+
+    function setSaveFlag(kind, text) {
+        const el = $('save-flag');
+        el.className = 'save-flag ' + (kind || '');
+        if (text) { el.textContent = text; return; }
+        const map = { pending: '待保存…', saving: '保存中…', saved: '已保存', error: '保存失败，稍后重试' };
+        el.textContent = map[kind] || '尚未保存';
+    }
+
+    async function flush() {
+        if (state.saving || !state.dirty.size) return;
+        const ids = Array.from(state.dirty);
+        const items = ids.map(function (id) {
+            const a = answerOf(id);
+            return {
+                paper_question_id: a.paper_question_id,
+                selected_labels: a.selected_labels,
+                answer_text: a.answer_text,
+                is_flagged: a.is_flagged,
+                time_spent_seconds: a.time_spent_seconds,
+            };
+        });
+
+        state.saving = true;
+        setSaveFlag('saving');
+        try {
+            const data = await API.post('/attempts/' + state.attempt.id + '/answers/', { items: items });
+            ids.forEach(function (id) { state.dirty.delete(id); });
+            state.attempt.answered_count = data.answered_count;
+            state.remaining = data.remaining_seconds;
+            setSaveFlag('saved', '已保存 · ' + new Date().toLocaleTimeString('zh-CN', { hour12: false }));
+            renderSheet();
+        } catch (err) {
+            setSaveFlag('error');
+            // 超时 / 已结束这类业务错误要弹出来让学生知道
+            if (err && err.code && err.code !== 40000) UI.error(UI.errorText(err));
+        } finally {
+            state.saving = false;
+        }
+    }
+
+    /* ==================== 渲染：答题卡 ==================== */
+    function renderSheet() {
+        const host = $('q-sheet');
+        host.innerHTML = state.questions.map(function (q, index) {
+            const pqId = q.paper_question_id;
+            const classes = ['q-cell'];
+            if (answered(pqId)) classes.push('is-answered');
+            if (answerOf(pqId).is_flagged) classes.push('is-flagged');
+            if (state.mode === 'single' && index === state.currentIndex) classes.push('is-current');
+            return '<button type="button" class="' + classes.join(' ') + '" data-index="' + index + '" '
+                + 'title="第 ' + (index + 1) + ' 题">' + (index + 1) + '</button>';
+        }).join('');
+
+        host.querySelectorAll('.q-cell').forEach(function (cell) {
+            cell.addEventListener('click', function () {
+                const index = Number(cell.dataset.index);
+                if (state.mode === 'all') {
+                    state.mode = 'single';
+                    $('btn-mode').innerHTML = '<i class="bi bi-list-ul me-1"></i>全卷模式';
+                }
+                gotoQuestion(index);
+            });
+        });
+
+        const total = state.questions.length;
+        const done = answeredCount();
+        $('progress-text').textContent = done + '/' + total;
+        $('sheet-progress').textContent = done + '/' + total;
+    }
+
+    /* ==================== 渲染：题目 ==================== */
+    function questionHtml(q, index, forAll) {
+        const pqId = q.paper_question_id;
+        const a = answerOf(pqId);
+        const picked = a.selected_labels ? a.selected_labels.split('') : [];
+
+        let body = '';
+        if (q.options && q.options.length) {
+            const multiple = q.question_type === 'multiple';
+            body = q.options.map(function (opt) {
+                const on = picked.indexOf(opt.label) >= 0;
+                return '<div class="option-row' + (on ? ' is-picked' : '') + '" '
+                    + 'data-pq="' + pqId + '" data-label="' + esc(opt.label) + '" data-multiple="' + multiple + '">'
+                    + '<span class="option-label">' + esc(opt.label) + '</span>'
+                    + '<span class="option-content">' + esc(opt.content) + '</span></div>';
+            }).join('');
+        } else if (q.question_type === 'fill') {
+            body = '<div class="answer-area">'
+                + '<textarea class="form-control" rows="3" data-pq="' + pqId + '" '
+                + 'placeholder="每个空写一行，例如：&#10;栈&#10;队列">' + esc(a.answer_text) + '</textarea>'
+                + '<div class="form-text">多个空请分多行填写，顺序与题目中的空一致。</div></div>';
+        } else {
+            const rows = q.question_type === 'essay' ? 10 : 6;
+            body = '<div class="answer-area">'
+                + '<textarea class="form-control" rows="' + rows + '" data-pq="' + pqId + '" '
+                + 'placeholder="请在这里作答…">' + esc(a.answer_text) + '</textarea></div>';
+        }
+
+        const head = '<div class="q-head mb-3">'
+            + '<span class="q-index">' + (index + 1) + '</span>'
+            + '<span class="badge badge-soft badge-soft-purple">' + esc(q.type_display || TYPE_LABEL[q.question_type]) + '</span>'
+            + '<span class="badge badge-soft badge-soft-gray">' + q.score + ' 分</span>'
+            + (a.is_flagged ? '<span class="badge badge-soft badge-soft-amber">已标记</span>' : '')
+            + (forAll ? '' : '<span class="ms-auto text-muted small">卷面第 ' + q.number + ' 题</span>')
+            + '</div>';
+
+        return '<div class="question-block" data-index="' + index + '">' + head
+            + '<div class="q-stem mb-3">' + esc(q.stem) + '</div>' + body + '</div>';
+    }
+
+    function renderQuestion() {
+        const host = $('question-host');
+        const total = state.questions.length;
+
+        if (state.mode === 'all') {
+            host.className = 'question-card p-4 all-mode';
+            host.innerHTML = state.questions.map(function (q, index) {
+                return questionHtml(q, index, true);
+            }).join('');
+            $('pager').classList.add('d-none');
+        } else {
+            host.className = 'question-card p-4';
+            const q = state.questions[state.currentIndex];
+            host.innerHTML = questionHtml(q, state.currentIndex, false);
+            $('pager').classList.remove('d-none');
+            const a = answerOf(q.paper_question_id);
+            $('btn-flag').innerHTML = a.is_flagged
+                ? '<i class="bi bi-flag-fill"></i> 取消标记'
+                : '<i class="bi bi-flag"></i> 标记待复查';
+        }
+
+        bindAnswerInputs(host);
+        renderSheet();
+    }
+
+    function bindAnswerInputs(scope) {
+        scope.querySelectorAll('.option-row').forEach(function (row) {
+            row.addEventListener('click', function () {
+                const pqId = Number(row.dataset.pq);
+                const label = row.dataset.label;
+                const multiple = row.dataset.multiple === 'true';
+                const a = answerOf(pqId);
+                let picked = a.selected_labels ? a.selected_labels.split('') : [];
+
+                if (multiple) {
+                    const at = picked.indexOf(label);
+                    if (at >= 0) picked.splice(at, 1); else picked.push(label);
+                } else {
+                    picked = picked.length === 1 && picked[0] === label ? [] : [label];
+                }
+                a.selected_labels = picked.sort().join('');
+                markDirty(pqId);
+
+                const container = row.parentElement;
+                container.querySelectorAll('.option-row').forEach(function (item) {
+                    const on = a.selected_labels.indexOf(item.dataset.label) >= 0;
+                    item.classList.toggle('is-picked', on);
+                });
+                renderSheet();
+            });
+        });
+
+        scope.querySelectorAll('textarea[data-pq]').forEach(function (area) {
+            area.addEventListener('input', function () {
+                const pqId = Number(area.dataset.pq);
+                answerOf(pqId).answer_text = area.value;
+                markDirty(pqId);
+                renderSheet();
+            });
+        });
+    }
+
+    function gotoQuestion(index) {
+        if (index === state.currentIndex) return;
+        accumulateTime();
+        state.currentIndex = Math.max(0, Math.min(state.questions.length - 1, index));
+        state.questionEnterTs = Date.now();
+        renderQuestion();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function accumulateTime() {
+        if (state.mode !== 'single' || !state.questions.length) return;
+        const q = state.questions[state.currentIndex];
+        if (!q) return;
+        const spent = Math.floor((Date.now() - state.questionEnterTs) / 1000);
+        if (spent > 0) answerOf(q.paper_question_id).time_spent_seconds += spent;
+        state.questionEnterTs = Date.now();
+    }
+
+    /* ==================== 行为采集（防切屏 / 防粘贴） ==================== */
+    function bindProctor() {
+        document.addEventListener('visibilitychange', function () {
+            if (document.hidden && !state.finished) report([{ type: 'switch' }]);
+        });
+        window.addEventListener('blur', function () {
+            if (!state.finished) report([{ type: 'switch' }]);
+        });
+        document.addEventListener('paste', function () {
+            if (!state.finished && state.config.detect_paste) report([{ type: 'paste' }]);
+        });
+        document.addEventListener('fullscreenchange', function () {
+            if (state.config.fullscreen_required && !document.fullscreenElement && !state.finished) {
+                report([{ type: 'fullscreen_exit' }]);
+                $('cheat-banner').classList.remove('d-none');
+                $('cheat-banner').innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>'
+                    + '本场考试要求全屏作答，请点击右上角的 <i class="bi bi-arrows-fullscreen"></i> 返回全屏。';
+            }
+        });
+        window.addEventListener('beforeunload', function (e) {
+            if (!state.finished && state.attempt) {
+                e.preventDefault();
+                e.returnValue = '考试尚未交卷，离开页面会继续计时。确定离开吗？';
+                return e.returnValue;
+            }
+        });
+    }
+
+    async function report(events) {
+        try {
+            const data = await API.post('/attempts/' + state.attempt.id + '/behavior/', { events: events });
+            updateCheatStat(data);
+            if (data.auto_submitted) {
+                doSubmit('forced', true, '切屏次数超过上限，系统已强制交卷');
+                return;
+            }
+            if (data.limit_exceeded) {
+                $('cheat-banner').classList.remove('d-none');
+                $('cheat-banner').innerHTML = '<i class="bi bi-exclamation-octagon me-1"></i>'
+                    + '你已切屏 ' + data.switch_count + ' 次，超过本场考试上限（'
+                    + data.max_switch_count + ' 次），该行为已被记录。';
+                UI.toast('切屏次数已超限，请注意考试纪律。', 'danger');
+            } else if (data.switch_count >= Math.max(1, data.max_switch_count - 1)) {
+                UI.toast('你还可切屏 ' + Math.max(0, data.max_switch_count - data.switch_count) + ' 次。', 'warning');
+            }
+        } catch (err) {
+            console.warn('behavior report failed', err);
+        }
+    }
+
+    function updateCheatStat(data) {
+        $('cheat-stat').textContent = '切屏 ' + data.switch_count + ' 次'
+            + (data.paste_count ? ' · 粘贴 ' + data.paste_count + ' 次' : '');
+    }
+
+    /* ==================== 交卷 ==================== */
+    function showSubmitModal() {
+        const total = state.questions.length;
+        const done = answeredCount();
+        const missing = total - done;
+        $('submit-summary').innerHTML = '共 <b>' + total + '</b> 题，已作答 <b class="text-success">'
+            + done + '</b> 题' + (missing > 0
+                ? '，还有 <b class="text-danger">' + missing + '</b> 题未作答。' : '，全部作答完毕。');
+        modal.show();
+    }
+
+    async function doSubmit(reason, auto, message) {
+        if (state.finished) return;
+        state.finished = true;
+        if (auto) {
+            showShield(message || (reason === 'timeout' ? '考试时间已到，正在自动交卷…' : '本次作答已结束'),
+                       '正在提交你的答案，请稍候…');
+        }
+
+        try {
+            accumulateTime();
+            // 交卷时把内存里的作答一起带上，避免「最后一题没保存上」的经典丢分
+            const items = state.questions.map(function (q) {
+                const a = answerOf(q.paper_question_id);
+                return {
+                    paper_question_id: a.paper_question_id,
+                    selected_labels: a.selected_labels,
+                    answer_text: a.answer_text,
+                    is_flagged: a.is_flagged,
+                    time_spent_seconds: a.time_spent_seconds,
+                };
+            });
+            await API.post('/attempts/' + state.attempt.id + '/submit/',
+                           { reason: reason, items: items });
+        } catch (err) {
+            console.warn('submit failed', err);
+            if (!auto) UI.error(UI.errorText(err));
+        }
+
+        clearInterval(timerHandle);
+        clearInterval(hbHandle);
+        clearInterval(asHandle);
+
+        if (auto) {
+            setTimeout(function () { location.href = '/exams/' + EXAM_ID + '/result/'; }, 1200);
+        } else {
+            location.href = '/exams/' + EXAM_ID + '/result/';
+        }
+    }
+
+    function showShield(title, desc) {
+        $('shield-title').textContent = title;
+        $('shield-desc').textContent = desc;
+        $('shield').classList.add('show');
+    }
+
+    /* ==================== 全屏 ==================== */
+    function requestFullscreen() {
+        const el = document.documentElement;
+        const fn = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+        if (fn) fn.call(el).catch(function () { /* 用户未交互时浏览器会拒绝，忽略 */ });
+    }
+
+    /* ==================== 绑定 ==================== */
+    $('btn-prev').addEventListener('click', function () { gotoQuestion(state.currentIndex - 1); });
+    $('btn-next').addEventListener('click', function () {
+        if (state.currentIndex >= state.questions.length - 1) { showSubmitModal(); return; }
+        gotoQuestion(state.currentIndex + 1);
+    });
+    $('btn-flag').addEventListener('click', function () {
+        const q = state.questions[state.currentIndex];
+        const a = answerOf(q.paper_question_id);
+        a.is_flagged = !a.is_flagged;
+        markDirty(q.paper_question_id);
+        renderQuestion();
+    });
+    $('btn-mode').addEventListener('click', function () {
+        if (state.mode === 'single') {
+            accumulateTime();
+            state.mode = 'all';
+            this.innerHTML = '<i class="bi bi-file-earmark-text me-1"></i>单题模式';
+        } else {
+            state.mode = 'single';
+            this.innerHTML = '<i class="bi bi-list-ul me-1"></i>全卷模式';
+        }
+        renderQuestion();
+    });
+    $('btn-fullscreen').addEventListener('click', requestFullscreen);
+    $('btn-submit').addEventListener('click', showSubmitModal);
+    $('btn-confirm-submit').addEventListener('click', function () {
+        modal.hide();
+        doSubmit('manual', false);
+    });
+
+    // 键盘快捷键：箭头翻页（全卷模式下不生效，避免误触）
+    document.addEventListener('keydown', function (e) {
+        if (state.mode !== 'single' || state.finished) return;
+        const tag = (e.target.tagName || '').toLowerCase();
+        if (tag === 'textarea' || tag === 'input') return;
+        if (e.key === 'ArrowLeft') gotoQuestion(state.currentIndex - 1);
+        if (e.key === 'ArrowRight') gotoQuestion(state.currentIndex + 1);
+    });
+
+    boot();
+})();
+</script>
+{% endblock %}

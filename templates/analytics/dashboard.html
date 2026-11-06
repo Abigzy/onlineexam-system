@@ -1,0 +1,551 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}学情分析{% endblock %}
+
+{% block extra_css %}
+<style>
+    .kpi-card { border-radius: 16px; border: 1px solid var(--line-200, #e8edf4); background: #fff;
+                padding: 14px 16px; height: 100%; }
+    .kpi-card .kpi-label { font-size: 12px; color: #6b7686; }
+    .kpi-card .kpi-value { font-size: 26px; font-weight: 700; line-height: 1.2; }
+    .kpi-card .kpi-foot { font-size: 12px; color: #94a3b8; }
+
+    .chart-card { border-radius: 16px; border: 1px solid var(--line-200, #e8edf4); background: #fff;
+                  height: 100%; }
+    .chart-card .chart-head { padding: 12px 16px 0; display: flex; justify-content: space-between;
+                              align-items: baseline; gap: 8px; }
+    .chart-card .chart-head h6 { margin: 0; font-size: 14px; font-weight: 600; }
+    .chart-card .chart-head .hint { font-size: 12px; color: #94a3b8; }
+    .chart-box { width: 100%; height: 268px; padding: 6px 8px 10px; }
+
+    .mini-table { font-size: 13px; }
+    .mini-table thead th { font-size: 12px; color: #6b7686; font-weight: 600;
+                           border-bottom: 1px solid var(--line-200, #e8edf4); }
+    .mini-table td { vertical-align: middle; }
+
+    .weak-chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; }
+    .weak-chip.high { background: #fee2e2; color: #991b1b; }
+    .weak-chip.medium { background: #fef3c7; color: #92400e; }
+    .weak-chip.low { background: #e0f2fe; color: #075985; }
+    .progress-thin { height: 6px; border-radius: 999px; background: #eef2f7; overflow: hidden; }
+    .progress-thin > span { display: block; height: 100%; background: linear-gradient(90deg, #6366f1, #22c1a5); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="mb-0">学情分析</h4>
+            <div class="text-muted small">班级维度的掌握情况：分数分布、逐题得分率、薄弱知识点、参与度</div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <select class="form-select form-select-sm" id="exam-select" style="min-width:280px">
+                <option value="">加载中…</option>
+            </select>
+            <select class="form-select form-select-sm" id="class-select" style="min-width:180px">
+                <option value="">全部班级</option>
+            </select>
+            <button class="btn btn-outline-secondary btn-sm" id="btn-refresh">
+                <i class="bi bi-arrow-clockwise me-1"></i> 刷新
+            </button>
+            <a href="{% url 'grading-workbench' %}" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-clipboard-check me-1"></i> 去批改
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="container py-4">
+    <div id="dashboard-host">
+        <div class="text-center text-muted py-5">加载中…</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(function () {
+    'use strict';
+
+    const INITIAL_EXAM_ID = {{ exam_id|default:"null" }};
+    const charts = {};
+    let state = { exam: null, report: null, attempts: [] };
+
+    function $(id) { return document.getElementById(id); }
+    function esc(text) {
+        return String(text === null || text === undefined ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function num(value, digits) {
+        if (value === null || value === undefined) return '—';
+        const v = Number(value);
+        if (!isFinite(v)) return '—';
+        return digits === undefined ? (Number.isInteger(v) ? String(v) : v.toFixed(1)) : v.toFixed(digits);
+    }
+    function pct(value) { return value === null || value === undefined ? '—' : num(value, 1) + '%'; }
+
+    function ensureChart(key, elementId) {
+        if (!window.echarts) return null;
+        if (!charts[key]) {
+            const element = $(elementId);
+            element.innerHTML = '';
+            charts[key] = echarts.init(element);
+        }
+        return charts[key];
+    }
+
+    /** 没有数据时把图位换成一行提示。
+     *
+     * 必须先 dispose 再改 innerHTML——直接覆盖 innerHTML 会让 ECharts 实例
+     * 指向一个已经不在 DOM 里的节点，之后切回有数据的状态就会画不出来。
+     */
+    function emptyChart(key, elementId, message) {
+        if (charts[key]) {
+            charts[key].dispose();
+            delete charts[key];
+        }
+        const element = $(elementId);
+        if (element) {
+            element.innerHTML = '<div class="text-muted small text-center pt-5">' + esc(message) + '</div>';
+        }
+    }
+
+    const AXIS = {
+        axisLabel: { fontSize: 11, color: '#475569' },
+        axisLine: { lineStyle: { color: '#e2e8f0' } },
+        splitLine: { lineStyle: { color: '#eef2f7' } },
+    };
+
+    /* ---------------- 考试选择器 ---------------- */
+    async function loadExams() {
+        const select = $('exam-select');
+        let data;
+        try {
+            data = await API.get('/analytics/exams/');
+        } catch (err) {
+            select.innerHTML = '<option value="">加载失败</option>';
+            UI.error(UI.errorText(err));
+            return;
+        }
+        const rows = data.results || [];
+        if (!rows.length) {
+            select.innerHTML = '<option value="">暂无可分析的考试（需先有人交卷）</option>';
+            $('dashboard-host').innerHTML =
+                '<div class="text-center text-muted py-5">'
+                + '<i class="bi bi-inbox d-block mb-2" style="font-size:36px;opacity:.4"></i>'
+                + '还没有已交卷的考试。等学生作答并判分后，这里会出现班级学情。</div>';
+            return;
+        }
+        select.innerHTML = rows.map(function (row) {
+            return '<option value="' + row.id + '">' + esc(row.title)
+                + '（' + esc(row.subject || '未分学科') + ' · ' + row.submitted_total + ' 份作答）</option>';
+        }).join('');
+
+        const wanted = INITIAL_EXAM_ID && rows.some(function (r) { return r.id === INITIAL_EXAM_ID; })
+            ? INITIAL_EXAM_ID : rows[0].id;
+        select.value = String(wanted);
+        await loadReport(wanted);
+    }
+
+    /* ---------------- 加载报告 ---------------- */
+    async function loadReport(examId) {
+        const host = $('dashboard-host');
+        host.innerHTML = '<div class="text-center text-muted py-5">加载中…</div>';
+        let data;
+        try {
+            data = await API.get('/analytics/exams/' + examId + '/report/', {
+                classroom_id: $('class-select').value || undefined,
+            });
+        } catch (err) {
+            host.innerHTML = '<div class="text-center text-danger py-5">' + esc(UI.errorText(err)) + '</div>';
+            return;
+        }
+        state.report = data;
+        state.exam = data.exam;
+        // 看板接口只返回聚合结果（不含逐人明细），但「按学生看学情」需要完整名单，
+        // 所以单独拉一次作答列表：这里只需要 id / 姓名 / 分数，失败不阻断看板渲染。
+        state.attempts = [];
+        try {
+            const raw = await API.get('/exams/' + examId + '/attempts/');
+            state.attempts = (raw.results || raw || []).map(function (a) {
+                const total = Number(a.total_score) || 0;
+                const score = Number(a.score) || 0;
+                return {
+                    student_id: a.student_id,
+                    student_name: a.student_name,
+                    student_no: a.student_no,
+                    score: score,
+                    total_score: total,
+                    percent: total ? Math.round(score / total * 1000) / 10 : null,
+                    can_view_analytics: a.can_view_analytics !== false,
+                };
+            }).sort(function (x, y) { return (y.score || 0) - (x.score || 0); });
+        } catch (err) { /* 名单拉不到不影响看板本身 */ }
+        render(data, host);
+    }
+
+    async function loadClassrooms() {
+        const select = $('class-select');
+        try {
+            const data = await API.get('/classrooms/options/');
+            (data.results || []).forEach(function (c) {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = c.name + (c.grade_year ? '（' + c.grade_year + '）' : '');
+                select.appendChild(opt);
+            });
+        } catch (err) { /* 班级下拉加载失败不阻断学情看板 */ }
+    }
+
+    /* ---------------- 渲染 ---------------- */
+    function render(data, host) {
+        const part = data.participation || {};
+        const stats = (data.distribution || {}).stats || {};
+        const behavior = data.behavior || {};
+        const weak = data.weak_knowledge_points || { items: [], summary: {} };
+
+        host.innerHTML = ''
+            + kpiRow(part, stats, behavior)
+            + '<div class="row g-3 mt-1">'
+            + chartCard('chart-bucket', '分数段分布', '按得分率分档，附正态参考曲线')
+            + chartCard('chart-question', '逐题得分率', '偏低的题目会标红')
+            + chartCard('chart-weak', '薄弱知识点排行', '正确率低于 60% 的知识点')
+            + chartCard('chart-participation', '作答参与度', '考试组织情况一览')
+            + '</div>'
+            + '<div class="row g-3 mt-3">'
+            + weakTable(weak)
+            + rankingCard(data.ranking || {}, state.attempts)
+            + '</div>';
+
+        renderBucketChart(data.distribution || {});
+        renderQuestionChart(data.questions || {});
+        renderWeakChart(weak);
+        renderParticipationChart(part);
+        bindResize();
+    }
+
+    function kpiRow(part, stats, behavior) {
+        return '<div class="row g-3">'
+            + kpi('应考人数', num(part.applicants), '已开始 ' + num(part.started) + ' 人')
+            + kpi('已交卷', num(part.submitted),
+                  '提交率 ' + pct(part.submit_rate))
+            + kpi('平均分', num(stats.avg_score, 1),
+                  '得分率 ' + pct(stats.avg_percent))
+            + kpi('及格率', pct(stats.pass_rate),
+                  '及格 ' + num(stats.pass_count) + ' / ' + num(stats.graded_count) + ' 人')
+            + kpi('最高 / 最低', num(stats.max_score, 1) + ' / ' + num(stats.min_score, 1),
+                  '中位数 ' + num(stats.median_score, 1))
+            + kpi('行为预警', num(behavior.suspicious_count) + ' 人',
+                  '切屏 ' + num(behavior.switch_total) + ' 次 · 粘贴 ' + num(behavior.paste_total) + ' 次')
+            + '</div>';
+    }
+
+    function kpi(label, value, foot) {
+        return '<div class="col-6 col-md-4 col-xl-2"><div class="kpi-card">'
+            + '<div class="kpi-label">' + esc(label) + '</div>'
+            + '<div class="kpi-value">' + value + '</div>'
+            + '<div class="kpi-foot">' + foot + '</div>'
+            + '</div></div>';
+    }
+
+    function chartCard(id, title, hint) {
+        return '<div class="col-12 col-xl-6"><div class="chart-card">'
+            + '<div class="chart-head"><h6>' + esc(title) + '</h6>'
+            + '<span class="hint">' + esc(hint) + '</span></div>'
+            + '<div class="chart-box" id="' + id + '"></div>'
+            + '</div></div>';
+    }
+
+    /* ---- 图一：分数段分布 + 正态曲线 ---- */
+    function renderBucketChart(distribution) {
+        const chart = ensureChart('bucket', 'chart-bucket');
+        if (!chart) return;
+        const buckets = distribution.buckets || [];
+        const normal = distribution.normal || {};
+        const total = Number(normal.total || 0);
+
+        // 用正态分布密度函数算一条参考曲线：横轴按分数段中心分 60 个点
+        const series = [{
+            name: '人数', type: 'bar', barWidth: '46%',
+            data: buckets.map(function (row) { return row.count; }),
+            itemStyle: {
+                color: function (params) {
+                    return params.dataIndex >= buckets.length - 1 ? '#f97316' : '#6366f1';
+                },
+                borderRadius: [6, 6, 0, 0],
+            },
+            label: { show: true, position: 'top', fontSize: 11, color: '#475569' },
+        }];
+
+        if (total > 0 && normal.sigma !== null && normal.sigma !== undefined) {
+            const mu = Number(normal.mu || 0) * total;
+            const sigma = Number(normal.sigma || 0) * total;
+            const n = Number(distribution.stats && distribution.stats.graded_count || 0);
+            const points = [];
+            for (let i = 0; i <= 60; i++) {
+                const score = total * i / 60;
+                let density = 0;
+                if (sigma > 0) {
+                    density = (1 / (sigma * Math.sqrt(2 * Math.PI)))
+                        * Math.exp(-Math.pow(score - mu, 2) / (2 * sigma * sigma));
+                }
+                points.push([score.toFixed(1), density * n * (total / 60)]);
+            }
+            series.push({
+                name: '正态参考', type: 'line', smooth: true, symbol: 'none',
+                data: points, lineStyle: { color: '#0ea5a5', width: 2, type: 'dashed' },
+                tooltip: { show: false },
+            });
+        }
+
+        chart.setOption({
+            grid: { left: 46, right: 20, top: 26, bottom: 30 },
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+            legend: { show: series.length > 1, right: 10, top: 0, itemWidth: 12, itemHeight: 8,
+                      textStyle: { fontSize: 11 } },
+            xAxis: Object.assign({ type: 'category', data: buckets.map(function (r) { return r.label; }) }, AXIS),
+            yAxis: Object.assign({ type: 'value', minInterval: 1 }, AXIS),
+            series: series,
+        }, true);
+        chart.resize();
+    }
+
+    /* ---- 图二：逐题得分率 ---- */
+    function renderQuestionChart(questions) {
+        const items = questions.items || [];
+        if (!items.length) {
+            emptyChart('question', 'chart-question', '暂无题目数据');
+            return;
+        }
+        const chart = ensureChart('question', 'chart-question');
+        if (!chart) return;
+        chart.setOption({
+            grid: { left: 46, right: 16, top: 22, bottom: 34 },
+            tooltip: {
+                trigger: 'axis',
+                formatter: function (params) {
+                    const item = items[params[0].dataIndex] || {};
+                    return '第 ' + item.order + ' 题（' + esc(item.type_display) + '）<br>'
+                        + '得分率：' + pct((item.score_rate || 0) * 100) + '<br>'
+                        + '正确率：' + (item.accuracy === null ? '—' : pct(item.accuracy * 100)) + '<br>'
+                        + '区分度：' + num(item.discrimination, 2) + '（' + esc(item.difficulty_label) + '）';
+                },
+            },
+            xAxis: Object.assign({
+                type: 'category',
+                data: items.map(function (row) { return row.order; }),
+                name: '题号', nameTextStyle: { fontSize: 11, color: '#94a3b8' },
+            }, AXIS),
+            yAxis: Object.assign({ type: 'value', max: 100, axisLabel: { fontSize: 11, color: '#475569',
+                                  formatter: '{value}%' } }, AXIS),
+            series: [{
+                type: 'bar', barMaxWidth: 22,
+                data: items.map(function (row) {
+                    return {
+                        value: Math.round((row.score_rate || 0) * 1000) / 10,
+                        itemStyle: { color: row.is_weak ? '#ef4444' : '#6366f1', borderRadius: [5, 5, 0, 0] },
+                    };
+                }),
+                markLine: {
+                    silent: true, symbol: 'none',
+                    lineStyle: { color: '#f59e0b', type: 'dashed' },
+                    label: { formatter: '薄弱线 60%', fontSize: 11, color: '#b45309', position: 'insideEndTop' },
+                    data: [{ yAxis: 60 }],
+                },
+            }],
+        }, true);
+        chart.resize();
+    }
+
+    /* ---- 图三：薄弱知识点排行 ---- */
+    function renderWeakChart(weak) {
+        const items = (weak.items || []).slice(0, 10).reverse();
+        if (!items.length) {
+            emptyChart('weak', 'chart-weak', '没有低于 60% 达标线的知识点 🎉');
+            return;
+        }
+        const chart = ensureChart('weak', 'chart-weak');
+        if (!chart) return;
+        chart.setOption({
+            grid: { left: 96, right: 48, top: 16, bottom: 26 },
+            tooltip: {
+                trigger: 'axis', axisPointer: { type: 'shadow' },
+                formatter: function (params) {
+                    const item = items[params[0].dataIndex] || {};
+                    return esc(item.full_path || item.name) + '<br>'
+                        + '正确率：' + pct((item.accuracy || 0) * 100) + '<br>'
+                        + '答题数：' + item.answered + ' 题';
+                },
+            },
+            xAxis: Object.assign({ type: 'value', max: 100,
+                                   axisLabel: { fontSize: 11, color: '#475569', formatter: '{value}%' } }, AXIS),
+            yAxis: Object.assign({ type: 'category',
+                                   data: items.map(function (row) { return row.name; }),
+                                   axisLabel: { fontSize: 11, color: '#334155' } }, AXIS),
+            series: [{
+                type: 'bar', barMaxWidth: 16,
+                data: items.map(function (row) {
+                    return {
+                        value: Math.round((row.accuracy || 0) * 1000) / 10,
+                        itemStyle: {
+                            color: (row.accuracy || 0) < 0.4 ? '#ef4444' : '#f59e0b',
+                            borderRadius: [0, 5, 5, 0],
+                        },
+                    };
+                }),
+                label: { show: true, position: 'right', fontSize: 11, color: '#475569',
+                         formatter: '{c}%' },
+            }],
+        }, true);
+        chart.resize();
+    }
+
+    /* ---- 图四：参与度 ---- */
+    function renderParticipationChart(part) {
+        const data = [
+            { name: '已判分', value: part.graded || 0, itemStyle: { color: '#22c1a5' } },
+            { name: '待判分', value: part.pending_grading || 0, itemStyle: { color: '#f59e0b' } },
+            { name: '未交卷', value: Math.max(0, (part.started || 0) - (part.submitted || 0)),
+              itemStyle: { color: '#94a3b8' } },
+            { name: '未开始', value: part.not_started || 0, itemStyle: { color: '#e2e8f0' } },
+        ].filter(function (row) { return row.value > 0; });
+
+        if (!data.length) {
+            emptyChart('participation', 'chart-participation', '暂无参与数据');
+            return;
+        }
+        const chart = ensureChart('participation', 'chart-participation');
+        if (!chart) return;
+        chart.setOption({
+            tooltip: { trigger: 'item', formatter: '{b}：{c} 人（{d}%）' },
+            legend: { bottom: 0, itemWidth: 10, itemHeight: 8, textStyle: { fontSize: 11 } },
+            series: [{
+                type: 'pie', radius: ['42%', '66%'], center: ['50%', '45%'],
+                avoidLabelOverlap: true,
+                label: { formatter: '{b}\n{c} 人', fontSize: 11, color: '#475569' },
+                labelLine: { length: 8, length2: 8 },
+                data: data,
+            }],
+        }, true);
+        chart.resize();
+    }
+
+    /* ---- 薄弱知识点明细 ---- */
+    function weakTable(weak) {
+        const items = weak.items || [];
+        const rows = items.map(function (row) {
+            const chip = (row.accuracy || 0) < 0.4 ? 'high' : (row.accuracy || 0) < 0.52 ? 'medium' : 'low';
+            return '<tr>'
+                + '<td class="text-truncate" style="max-width:200px" title="' + esc(row.full_path) + '">'
+                + esc(row.full_path || row.name) + '</td>'
+                + '<td class="text-center">' + row.answered + '</td>'
+                + '<td class="text-center">' + row.correct + '</td>'
+                + '<td style="min-width:110px">'
+                + '<div class="d-flex align-items-center gap-2">'
+                + '<div class="progress-thin flex-grow-1"><span style="width:'
+                + Math.round((row.accuracy || 0) * 100) + '%"></span></div>'
+                + '<span class="small">' + pct((row.accuracy || 0) * 100) + '</span></div></td>'
+                + '<td class="text-center"><span class="weak-chip ' + chip + '">'
+                + esc(row.mastery_level_display) + '</span></td>'
+                + '</tr>';
+        }).join('');
+
+        const body = items.length
+            ? '<div class="table-responsive"><table class="table mini-table align-middle mb-0">'
+              + '<thead><tr><th>知识点</th><th class="text-center">答题</th><th class="text-center">答对</th>'
+              + '<th>正确率</th><th class="text-center">掌握度</th></tr></thead>'
+              + '<tbody>' + rows + '</tbody></table></div>'
+            : '<div class="text-muted small py-4 text-center">'
+              + '本场考试没有低于 60% 达标线的知识点 🎉</div>';
+
+        const summary = weak.summary || {};
+        return '<div class="col-12 col-xl-7"><div class="chart-card"><div class="chart-head">'
+            + '<h6>薄弱知识点明细</h6><span class="hint">共 ' + num(summary.weak_count || 0)
+            + ' / ' + num(summary.knowledge_point_count || 0) + ' 个知识点未达标</span></div>'
+            + '<div class="p-3 pt-2">' + body + '</div></div></div>';
+    }
+
+    /* ---- 排名预览 ---- */
+    function rankingCard(ranking, allRows) {
+        // 姓名做成入口：点进去看这个学生的个人学情。
+        // can_view_analytics 由后端按「是否在自己带的班里」给出，跨班考试时不能点的
+        // 直接渲染成纯文本，免得用户点进 404 以为页面坏了。
+        function link(row) {
+            const name = esc(row.student_name || row.student_no || '—');
+            if (!row.student_id || row.can_view_analytics === false) return name;
+            return '<a class="text-decoration-none" href="/analytics/students/' + row.student_id + '/"'
+                + ' title="查看该学生的学情详情">' + name + '</a>';
+        }
+        function list(rows, tone) {
+            if (!rows || !rows.length) {
+                return '<div class="text-muted small py-2">暂无数据</div>';
+            }
+            return rows.map(function (row, index) {
+                return '<div class="d-flex justify-content-between align-items-center py-1">'
+                    + '<div class="text-truncate" style="max-width:60%">'
+                    + '<span class="badge badge-soft ' + (tone === 'top' ? 'badge-soft-teal' : 'badge-soft-red')
+                    + ' me-2">' + (index + 1) + '</span>'
+                    + link(row) + '</div>'
+                    + '<div class="text-nowrap"><span class="fw-semibold">' + num(row.score, 1) + '</span>'
+                    + '<span class="text-muted small"> / ' + num(row.total_score, 0) + ' · '
+                    + pct(row.percent) + '</span></div>'
+                    + '</div>';
+            }).join('');
+        }
+        // 前 5 / 后 5 之外的中间学生也要能点到，否则「按学生看学情」只覆盖两头
+        const rows = allRows || [];
+        const allList = rows.length
+            ? '<details class="mt-2"><summary class="small text-muted" style="cursor:pointer">'
+                + '查看全部 ' + rows.length + ' 名学生</summary>'
+                + '<div class="mt-1" style="max-height:260px;overflow:auto">'
+                + rows.map(function (row) {
+                    return '<div class="d-flex justify-content-between align-items-center py-1 small">'
+                        + '<div class="text-truncate" style="max-width:60%">' + link(row) + '</div>'
+                        + '<span class="text-muted">' + num(row.score, 1) + ' / ' + num(row.total_score, 0)
+                        + ' · ' + pct(row.percent) + '</span></div>';
+                }).join('')
+                + '</div></details>'
+            : '';
+        return '<div class="col-12 col-xl-5"><div class="chart-card"><div class="chart-head">'
+            + '<h6>成绩排名</h6><span class="hint">点击姓名看个人学情</span></div>'
+            + '<div class="p-3 pt-2">'
+            + '<div class="small text-muted mb-1">表现较好</div>' + list(ranking.top, 'top')
+            + '<hr class="my-2">'
+            + '<div class="small text-muted mb-1">需要关注</div>' + list(ranking.bottom, 'bottom')
+            + allList
+            + '</div></div></div>';
+    }
+
+    /* ---------------- 事件 ---------------- */
+    let resizeTimer = null;
+    function bindResize() {
+        if (bindResize.done) return;
+        bindResize.done = true;
+        window.addEventListener('resize', function () {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(function () {
+                Object.keys(charts).forEach(function (key) { charts[key].resize(); });
+            }, 160);
+        });
+    }
+
+    $('exam-select').addEventListener('change', function (event) {
+        if (event.target.value) loadReport(event.target.value);
+    });
+    $('class-select').addEventListener('change', function (event) {
+        const id = $('exam-select').value;
+        if (id) loadReport(id);
+    });
+    $('btn-refresh').addEventListener('click', function () {
+        const id = $('exam-select').value;
+        if (id) { UI.success('已刷新'); loadReport(id); }
+    });
+
+    loadClassrooms();
+    loadExams();
+})();
+</script>
+{% endblock %}
