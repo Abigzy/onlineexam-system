@@ -148,17 +148,17 @@ python manage.py runserver
 ## 三、运行测试
 
 ```bash
-python manage.py test apps                  # 全量（1200 个用例）
-python manage.py test apps.users -v 2       # 用户与认证（29 个）
-python manage.py test apps.ai -v 2          # AI 适配层（52 个）
-python manage.py test apps.questions -v 2   # 题库（48 个）
-python manage.py test apps.papers -v 2      # 试卷与组卷（122 个）
-python manage.py test apps.exam -v 2        # 在线考试（108 个）
-python manage.py test apps.grading -v 2     # 判分与成绩（144 个）
-python manage.py test apps.analytics -v 2   # 学情分析（74 个）
-python manage.py test apps.recommend -v 2   # 个性化推荐（84 个）
-python manage.py test apps.proctoring -v 2  # 作弊行为检测（84 个）
-python manage.py test apps.classroom -v 2   # 班级管理（24 个）
+python manage.py test apps                  # 全量（1200 个用例，约 8~10 分钟）
+python manage.py test apps.users -v 2       # 用户与认证
+python manage.py test apps.ai -v 2          # AI 适配层
+python manage.py test apps.questions -v 2   # 题库与知识点
+python manage.py test apps.papers -v 2      # 试卷与组卷
+python manage.py test apps.exam -v 2        # 在线考试
+python manage.py test apps.grading -v 2     # 判分与成绩
+python manage.py test apps.analytics -v 2   # 学情分析
+python manage.py test apps.recommend -v 2   # 个性化推荐
+python manage.py test apps.proctoring -v 2  # 作弊行为检测
+python manage.py test apps.classroom -v 2   # 班级管理
 
 # 前端质量
 python scripts/check_inline_js.py       # 模板内联 JS **语法**检查（26 个脚本块，需 node）
