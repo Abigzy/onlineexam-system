@@ -30,9 +30,12 @@
   N. 清理本次写入的测试数据
 
 用法：
-    终端 1： python manage.py runserver 127.0.0.1:8777
+    终端 1： python manage.py runserver          # 默认 8000
     终端 2： python scripts/smoke_test.py
-            python scripts/smoke_test.py http://127.0.0.1:8000
+            python scripts/smoke_test.py http://127.0.0.1:8777   # 自定义端口
+
+默认连 127.0.0.1:8000（与 run_dev.bat、README 一致）；
+需要换端口时把 URL 作为第一个参数传进来。
 
 注意：脚本会真实写入数据（1 个知识点 + 3 道题 + 1 份试卷 + 1 场考试），结尾会清理。
 题库的 DELETE 是**软删除**（停用，为的是不破坏历史试卷与成绩），所以每次运行
@@ -69,7 +72,7 @@ import sys
 
 import requests
 
-BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8777").rstrip("/")
+BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8000").rstrip("/")
 S = requests.Session()
 S.trust_env = False  # 绕过系统代理，否则本地 127.0.0.1 可能被代理拦截
 S.proxies = {"http": None, "https": None}
