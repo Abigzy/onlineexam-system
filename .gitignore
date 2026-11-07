@@ -57,3 +57,7 @@ docs/管理端测试报告.md
 docs/每日练习冷启动修复-测试报告.md
 docs/exec_shots/
 docs/归档/
+
+# 用例 / 导图生成器与实测执行脚本（build_* / data_part* / exec_*）
+# 它们是配套测试项目的工程资产，不是被测系统代码；本地保留，整合测试项目时直接取用。
+scripts/testcase_gen/

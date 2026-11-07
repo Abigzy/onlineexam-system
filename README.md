@@ -239,14 +239,13 @@ onlineexam-system/
 ├── templates/               31  服务端渲染页面（按角色与模块分目录）
 ├── static/                   3  api.js（统一请求与错误渲染）/ style.css / manage.js
 │
-├── scripts/                 30  开发与验证脚本
+├── scripts/                 18  开发与验证脚本
 │   ├── smoke_test.py            端到端冒烟（196 项，真实 HTTP）
 │   ├── check_inline_js.py       模板内联 JS 语法检查
 │   ├── check_practice_js.py     内联 JS 逻辑校验（真的执行一遍）
 │   ├── browser_walkthrough.py   多角色浏览器走查（需自备 chromedriver）
 │   ├── locustfile.py            性能压测场景
-│   ├── bank_gen/                三个学科的题库生成器
-│   └── testcase_gen/            用例文档生成（md / xlsx / xmind）
+│   └── bank_gen/                三个学科的题库生成器
 │
 ├── docs/                    14  开发文档（测试资产在配套测试项目）
 │   ├── 需求规格说明书.md          FR 编号、权限矩阵、需求 ↔ 实现对照
