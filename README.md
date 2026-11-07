@@ -134,7 +134,7 @@ python manage.py runserver
 | http://127.0.0.1:8000/api/health/ | 健康检查 |
 | http://127.0.0.1:8000/admin/ | Django 后台 |
 
-**演示账号**（密码统一 `Exam@123456`）：
+**演示账号**（密码统一 `Exam@123456`，仅限本地演示数据，切勿用于生产环境）：
 
 | 用户名 | 角色 |
 |---|---|
@@ -186,8 +186,8 @@ AI 适配层、导入导出、试卷与组卷、在线考试、判分与成绩�
 作弊行为检测、班级管理、权限边界），需要先起服务：
 
 ```bash
-# 终端 1
-python manage.py runserver 127.0.0.1:8777
+# 终端 1（smoke_test.py 默认请求 8000 端口，起服务时端口要一致）
+python manage.py runserver 127.0.0.1:8000
 # 终端 2
 python scripts/smoke_test.py
 ```
@@ -632,7 +632,8 @@ POST /api/v1/exams/
 
 ## 六、数据库
 
-默认配置在 `.env` 里，当前跑的是**本机 MySQL 5.6.46**：
+仓库默认用 **SQLite**，克隆后不装数据库也能直接启动。若要改用 MySQL，把 `.env` 里的
+`DB_ENGINE` 设为 `mysql` 并按下面配置（本项目在 MySQL 5.6.46 上实测通过）：
 
 ```ini
 DB_ENGINE=mysql

@@ -32,7 +32,7 @@
 用法：
     终端 1： python manage.py runserver          # 默认 8000
     终端 2： python scripts/smoke_test.py
-            python scripts/smoke_test.py http://127.0.0.1:8777   # 自定义端口
+            python scripts/smoke_test.py http://127.0.0.1:8001   # 自定义端口
 
 默认连 127.0.0.1:8000（与 run_dev.bat、README 一致）；
 需要换端口时把 URL 作为第一个参数传进来。

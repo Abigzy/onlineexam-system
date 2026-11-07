@@ -12,8 +12,8 @@ def main():
         from django.core.management import execute_from_command_line
     except ImportError as exc:
         raise ImportError(
-            "无法导入 Django。请确认已安装依赖，并已激活项目虚拟环境："
-            r" D:\OnlineExam\.venv\Scripts\activate"
+            "无法导入 Django。请先安装依赖并激活项目虚拟环境："
+            "Windows 执行 .venv\\Scripts\\activate，Linux/macOS 执行 source .venv/bin/activate"
         ) from exc
     execute_from_command_line(sys.argv)
 

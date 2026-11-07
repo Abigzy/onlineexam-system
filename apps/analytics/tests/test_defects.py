@@ -1,6 +1,6 @@
 """R1 测试轮次发现的缺陷回归（BUG-03）。
 
-缺陷来源：``docs/OnlineExam-功能测试用例.xlsx`` 的「8-缺陷与观察项」工作表。
+缺陷来源：配套测试项目《功能测试用例》的「8-缺陷与观察项」工作表。
 """
 
 from apps.analytics.scoping import visible_student_ids

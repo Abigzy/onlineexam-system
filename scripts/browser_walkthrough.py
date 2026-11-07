@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """模块 11 · UI 测试走查（三角色 + 未登录访客 × 关键页面，真实浏览器）。
 
-对应 ``docs/UI走查清单.md`` 的自动化部分：登录三种角色（外加一遍未登录访客）→
+对应配套测试项目《UI 走查清单》的自动化部分：登录三种角色（外加一遍未登录访客）→
 逐页打开 → 记录
 
     1. HTTP 状态码（会话内直接请求，绕开浏览器缓存干扰）
@@ -14,10 +14,12 @@
        因为 headless Chromium 下 ``scrollTo`` / ``scrollIntoView`` 不生效）
     7. 375px 下弹窗宽度是否超出视口（自动弹出再收起）
 
-依赖（selenium 装在系统 Python，项目 .venv 里没有，也不要装）：
+依赖：selenium（建议装在用于 UI 验证的独立解释器里，不必装进项目 .venv）：
 
     env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
-        D:/python/python.exe scripts/browser_walkthrough.py
+        python scripts/browser_walkthrough.py
+
+    Windows 下先清掉 HTTP_PROXY / HTTPS_PROXY 等代理变量，再执行同一条命令。
 
 前置：开发服务器已启动，默认 127.0.0.1:8023（可用 OE_BASE 覆盖）：
 
@@ -54,7 +56,7 @@ PASSWORD = os.environ.get("OE_PASS", "Exam@123456")
 DESKTOP = (1400, 1200)
 MOBILE = (375, 812)
 
-# 走查用固定主键（开发库当前数据，见 docs/UI走查清单.md「数据前置」一节）
+# 走查用固定主键（开发库当前数据，前置条件见配套测试项目《UI 走查清单》）
 EXAM_ONGOING = 13          # 进行中的考试
 ATTEMPT_GRADED = 12        # 一条已批改的作答（作弊证据页用）
 PAPER_ID = 13              # 有题目的试卷

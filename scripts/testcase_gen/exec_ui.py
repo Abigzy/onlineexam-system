@@ -23,7 +23,9 @@ from selenium.webdriver.support.ui import Select, WebDriverWait
 
 BASE = "http://127.0.0.1:8777"
 PWD = "Exam@123456"
-DRIVER = r"D:\OnlineExam\scripts\drivers\chromedriver.exe"
+DRIVER = os.environ.get(
+    "CHROMEDRIVER", os.path.join("scripts", "drivers", "chromedriver.exe")
+)
 SHOT_DIR = os.path.join("docs", "exec_shots")
 RESULTS = []
 EXAM_ID = 21

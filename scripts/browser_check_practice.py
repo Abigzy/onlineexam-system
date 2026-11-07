@@ -6,9 +6,9 @@
 ——曾经选择题被渲染成纯文本、主观题没有输入框，两者照样全部 PASS。
 本脚本用真实浏览器打开页面、真的点一下选项、真的提交一次，用结果说话。
 
-依赖与运行方式（selenium 装在系统 Python 3.11，项目 .venv 里没有，也不要装）：
+依赖与运行方式（selenium 建议装在用于 UI 验证的独立解释器里，不必装进项目 .venv）：
 
-    D:\\python\\python.exe scripts/browser_check_practice.py
+    python scripts/browser_check_practice.py
 
 前置条件：开发服务器已在 127.0.0.1:8000 运行（scripts/run_dev.bat）。
 可用环境变量覆盖：OE_BASE（服务地址）、OE_USER、OE_PASS。
